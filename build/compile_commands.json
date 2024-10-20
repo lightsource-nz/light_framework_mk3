@@ -1,0 +1,42 @@
+[
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/src/framework_demo.c.o -c /home/tendril/projects/light_framework_mk3/test/framework_demo/src/framework_demo.c",
+  "file": "/home/tendril/projects/light_framework_mk3/test/framework_demo/src/framework_demo.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/module/light_core/src/framework.c.o -c /home/tendril/projects/light_framework_mk3/module/light_core/src/framework.c",
+  "file": "/home/tendril/projects/light_framework_mk3/module/light_core/src/framework.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/module/light_core/src/light_common.c.o -c /home/tendril/projects/light_framework_mk3/module/light_core/src/light_common.c",
+  "file": "/home/tendril/projects/light_framework_mk3/module/light_core/src/light_common.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/module/light_core/src/list.c.o -c /home/tendril/projects/light_framework_mk3/module/light_core/src/list.c",
+  "file": "/home/tendril/projects/light_framework_mk3/module/light_core/src/list.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/platform/board/host_system_board/src/board.c.o -c /home/tendril/projects/light_framework_mk3/platform/board/host_system_board/src/board.c",
+  "file": "/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/src/board.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/module/light_core_board_host_system/src/light_core_host_system.c.o -c /home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/src/light_core_host_system.c",
+  "file": "/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/src/light_core_host_system.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/platform/chip/host_system_chip/src/chip.c.o -c /home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/src/chip.c",
+  "file": "/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/src/chip.c"
+},
+{
+  "directory": "/home/tendril/projects/light_framework_mk3/build",
+  "command": "/usr/bin/gcc -DPLATFORM=HOST -DRUN_MODE=DEBUG -DSYSTEM=HOST_SYSTEM -I/home/tendril/projects/light_framework_mk3/module/light_core/include -I/home/tendril/projects/light_framework_mk3/platform/board/host_system_board/include -I/home/tendril/projects/light_framework_mk3/module/light_core_board_host_system/include -I/home/tendril/projects/light_framework_mk3/platform/chip/host_system_chip/include -I/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/include -g -o test/framework_demo/CMakeFiles/framework_demo.dir/__/__/platform/arch/host_system_arch/src/arch.c.o -c /home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/src/arch.c",
+  "file": "/home/tendril/projects/light_framework_mk3/platform/arch/host_system_arch/src/arch.c"
+}
+]

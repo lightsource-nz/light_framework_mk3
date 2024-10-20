@@ -1,0 +1,84 @@
+{
+    "version": 5,
+    "configurePresets": [
+        {
+            "name": "conf-base",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/build",
+            "generator": "Ninja"
+        },
+        {
+            "name": "conf-host-base",
+            "inherits": ["conf-base"],
+            "hidden": true,
+            "cacheVariables": {
+                "LIGHT_PLATFORM": "HOST",
+                "LIGHT_SYSTEM": "HOST_SYSTEM"
+            }
+        },
+        {
+            "name": "conf-host-debug",
+            "inherits": ["conf-host-base"],
+            "cacheVariables": {
+                "LIGHT_RUN_MODE": "DEBUG"
+            }
+        },
+        {
+            "name": "conf-debug",
+            "hidden": true,
+            "inherits": [
+                "conf-base"
+            ],
+            "cacheVariables": {
+                "LIGHT_RUN_MODE": "DEBUG",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "conf-pico-base",
+            "hidden": true,
+            "inherits": [
+                "conf-base"
+            ],
+            "cacheVariables": {
+                "LIGHT_SYSTEM": "PICO_SDK"
+            }
+        },
+        {
+            "name": "conf-pico",
+            "inherits": [
+                "conf-pico-base"
+            ],
+            "cacheVariables": {
+                "LIGHT_PLATFORM": "TARGET",
+                "LIGHT_BOARD": "pico"
+            }
+        },
+        {
+            "name": "conf-pico-host",
+            "inherits": [
+                "conf-pico-base"
+            ],
+            "cacheVariables": {
+                "LIGHT_PLATFORM": "HOST"
+            }
+        },
+        {
+            "name": "conf-host-debug",
+            "inherits": [
+                "conf-debug",
+                "conf-host"
+            ]
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "build-debug",
+            "configurePreset": "conf-debug",
+            "inheritConfigureEnvironment": true,
+            "targets": [
+                "crush"
+            ]
+        }
+    ]
+}

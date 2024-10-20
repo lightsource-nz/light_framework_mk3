@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "module/light_core_arch_arm32_m",
+		"source" : "module/light_core_arch_arm32_m"
+	}
+}

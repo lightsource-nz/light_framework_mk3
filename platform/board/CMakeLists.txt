@@ -1,0 +1,7 @@
+add_subdirectory(host_system_board)
+add_subdirectory(blackpill)
+add_subdirectory(bluepill_plus)
+add_subdirectory(mini_stm32h7)
+add_subdirectory(pico)
+add_subdirectory(pico_w)
+light_promote_shared_vars()
