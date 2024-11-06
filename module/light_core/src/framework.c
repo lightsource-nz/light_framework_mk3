@@ -156,7 +156,7 @@ void light_framework_load_application(struct light_application *app, int argc, c
                 .argc = argc, .argv = argv
         };
         light_info("application '%s' loaded successfully", light_application_get_name(app));
-        light_module_event_send_to_all(LF_EVENT_APP_LOAD, event);
+        light_module_event_send_to_all(LF_EVENT_APP_LOAD, &event);
 }
 // TODO overhaul arraylist API to make it suck less
 void light_framework_load_module(const struct light_module *mod)

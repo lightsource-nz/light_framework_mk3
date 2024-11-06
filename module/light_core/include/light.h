@@ -137,7 +137,7 @@ static inline const char *light_module_get_name(const struct light_module *mod)
 extern void _light_module_event_do_send_to_all(uint8_t event, void *arg);
 
 #define light_module_event_send_to_all(event, arg) do { \
-        light_debug("sending event [%d] to all modules..."); \
+        light_debug("sending event [%d] to all modules...", event); \
         _light_module_event_do_send_to_all(event, (void *)arg); \
 } while(0)
 
