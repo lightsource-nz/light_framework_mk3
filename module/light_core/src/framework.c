@@ -51,29 +51,33 @@ struct lobj_type ltype_light_application = {
         .release = _application_release
 };
 
-static void _event_load(const struct light_module *module, struct light_event_app_load *event)
+static void _event_module_load(const struct light_module *module, struct light_event_app_load *event)
 {
         
 }
-static void _event_unload(const struct light_module *module)
+static void _event_module_unload(const struct light_module *module)
 {
         
 }
 static void _module_event(const struct light_module *module, uint8_t event, void *arg)
 {
         switch(event) {
-        case LF_EVENT_LOAD:
-                _event_load(module, (struct light_event_app_load *)arg);
+        case LF_EVENT_MODULE_LOAD:
+                _event_module_load(module, (struct light_event_app_load *)arg);
                 break;
-        case LF_EVENT_UNLOAD:
-                _event_unload(module);
+        case LF_EVENT_MODULE_UNLOAD:
+                _event_module_unload(module);
                 break;
         }
 }
 Light_Module_Define(light_core,_module_event,);
 
-// framework internal state variables
+// framework loading progress flags
 static uint8_t framework_loading = 0;
+static uint8_t framework_loaded = 0;
+static uint8_t application_loading = 0;
+static uint8_t application_loaded = 0;
+// framework internal state variables
 static struct light_application *root_application = NULL;
 static uint8_t mods_loading_count = 0;
 static uint8_t mods_active_count = 0;
@@ -92,17 +96,18 @@ static uint8_t _lf_app_task(struct light_application *app)
 void _lf_app_event(const struct light_module *module, uint8_t event, void *arg)
 {
         switch(event) {
-        case LF_EVENT_LOAD:
+        case LF_EVENT_MODULE_LOAD:
                 light_module_register_periodic_task(module,"lf_app_main", _lf_app_task);
-                
                 break;
-        case LF_EVENT_UNLOAD:
+        case LF_EVENT_MODULE_UNLOAD:
                 light_module_unregister_periodic_task(module, _lf_app_task);
                 break;
         }
 
+        application_loading = 1;
         // pass event to app-level handler
         this_app->event(module, event, arg);
+        application_loaded = 1;
 }
 void light_framework_init(int argc, char *argv[])
 {
@@ -116,6 +121,7 @@ void light_framework_init(int argc, char *argv[])
 
         root_application = this_app;
         light_framework_load_application(root_application, argc, argv);
+        framework_loaded = 1;
 }
  
 // begin execution of all loaded applications and periodic tasks
@@ -141,26 +147,31 @@ void light_framework_load_application(struct light_application *app, int argc, c
         // TODO verify at build-time that we support the runtime version requested by this app
         light_info("loading application '%s': app version %s, framework version %s",
                                         light_application_get_name(app),"NULL","NULL");
+        // this call recursively loads the entire module tree for the application
+        light_framework_load_module(light_application_get_main_module(app));
+
+        // at this point, all modules are loaded successfully, so it's time to
+        // send the APP_LOAD event
         struct light_event_app_load event = {
                 .argc = argc, .argv = argv
         };
-        light_framework_load_module(light_application_get_main_module(app), &event);
         light_info("application '%s' loaded successfully", light_application_get_name(app));
+        light_module_event_send_to_all(LF_EVENT_APP_LOAD, event);
 }
 // TODO overhaul arraylist API to make it suck less
-void light_framework_load_module(const struct light_module *mod, void *arg)
+void light_framework_load_module(const struct light_module *mod)
 {
-        light_debug("begin loading module %s", light_module_get_name(mod));
+        light_trace("begin loading module %s", light_module_get_name(mod));
         light_arraylist_append(&mods_loading, &mods_loading_count, mod);
 
         // make sure all dependency modules are loaded before activating
         for(uint8_t i = 0; mod->module_deps[i] != NULL; i++) {
                 if(light_arraylist_indexof(&mods_loading, mods_loading_count, mod->module_deps[i]) == -1) {
-                        light_framework_load_module(mod->module_deps[i], arg);
+                        light_framework_load_module(mod->module_deps[i]);
                 }
         }
-        // send LOAD event; module is activated once it returns
-        light_module_send_event(mod, LF_EVENT_LOAD, arg);
+        // send MODULE_LOAD event; module is activated once it returns
+        light_module_event_send(mod, LF_EVENT_MODULE_LOAD, NULL);
         light_arraylist_append(&mods_active, &mods_active_count, mod);
         light_debug("module %s loaded successfully", light_module_get_name(mod));
 }
@@ -184,7 +195,13 @@ struct light_application *light_framework_get_root_application()
 {
         return root_application;
 }
-
+extern void _light_module_event_do_send_to_all(uint8_t event, void *arg)
+{
+        if(framework_loading)
+        for(uint8_t i = 0; i < mods_active_count; i++) {
+                _light_module_do_event_send(mods_active[i], event, arg);
+        }
+}
 const char *light_task_status_string(uint8_t status)
 {
         switch (status)

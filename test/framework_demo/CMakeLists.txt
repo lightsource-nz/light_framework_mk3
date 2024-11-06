@@ -6,6 +6,7 @@ target_sources(framework_demo PUBLIC ${CMAKE_CURRENT_LIST_DIR}/src/framework_dem
 target_link_libraries(
     framework_demo PUBLIC
     light_core
+    light_cli
 )
 
 if(LIGHT_SYSTEM STREQUAL PICO_SDK AND NOT PICO_NO_HARDWARE)

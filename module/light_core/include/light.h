@@ -4,14 +4,17 @@
 #include <light_common.h>
 #include <light_core_port.h>
 #include <light_object.h>
+#include <light_platform.h>
 
 // TODO implement version fields properly
 #define LF_VERSION_STR                  "0.1.0"
 
 #define LF_INFO_STR                     "Light Framework v" LF_VERSION_STR ", " LIGHT_BUILD_STRING
 
-#define LF_EVENT_LOAD                   0
-#define LF_EVENT_UNLOAD                 1
+#define LF_EVENT_MODULE_LOAD            0
+#define LF_EVENT_MODULE_UNLOAD          1
+#define LF_EVENT_APP_LOAD               2
+#define LF_EVENT_APP_UNLOAD             3
 
 #define LF_STATIC_MODULES_MAX           16
 
@@ -103,7 +106,7 @@ extern void light_framework_init(int argc, char *argv[]);
 extern void light_framework_run();
 extern void light_framework_load_application(
                         struct light_application *app, int argc, char *argv[]);
-extern void light_framework_load_module(const struct light_module *mod, void *arg);
+extern void light_framework_load_module(const struct light_module *mod);
 extern struct light_application *light_framework_get_root_application();
 extern const char *light_task_status_string(uint8_t status);
 
@@ -125,8 +128,17 @@ static inline const char *light_module_get_name(const struct light_module *mod)
         return mod->header.id;
 }
 
-#define light_module_send_event(_module, _event, _arg) \
-        light_debug("sending event '%s' to module '%s'", #_event, light_module_get_name(_module)); \
-        _module->event(_module, _event, _arg);
+#define _light_module_do_event_send(_module, _event, _arg) _module->event(_module, _event, _arg);
+#define light_module_event_send(_module, _event, _arg) do { \
+        light_trace("sending event '%s' to module '%s'", #_event, light_module_get_name(_module)); \
+        _light_module_do_event_send(_module, _event, _arg); \
+} while(0)
+
+extern void _light_module_event_do_send_to_all(uint8_t event, void *arg);
+
+#define light_module_event_send_to_all(event, arg) do { \
+        light_debug("sending event [%d] to all modules..."); \
+        _light_module_event_do_send_to_all(event, (void *)arg); \
+} while(0)
 
 #endif

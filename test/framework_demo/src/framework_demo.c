@@ -14,10 +14,10 @@ void main(int argc, char *argv[])
 static void framework_demo_app_event(const struct light_module *mod, uint8_t event, void *arg)
 {
         switch (event) {
-        case LF_EVENT_LOAD:
+        case LF_EVENT_APP_LOAD:
                 light_info("demo app received LOAD event","");
                 break;
-        case LF_EVENT_UNLOAD:
+        case LF_EVENT_APP_UNLOAD:
                 light_info("demo app received UNLOAD event","");
                 break;
         }

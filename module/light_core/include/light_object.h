@@ -1,12 +1,6 @@
 #ifndef _LIGHT_OBJECT_H
 #define _LIGHT_OBJECT_H
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-#include <light_common.h>
-
 #define LOM_OBJ_NAME_LENGTH 32
 
 struct light_object {

@@ -1,9 +1,9 @@
 {
-    "version": 2,
+    "version": 9,
     "configurePresets": [
       {
         "name": "default",
-        "inherits": "conf-host-debug",
+        "inherits": "conf-light-host-debug",
         "environment": {
         }
       }
@@ -12,7 +12,7 @@
       {
         "name": "default",
         "configurePreset": "default",
-        "inherits": "build-debug"
+        "inherits": "build-light-debug"
       }
     ]
   }

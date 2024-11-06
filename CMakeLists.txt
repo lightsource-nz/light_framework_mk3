@@ -14,6 +14,7 @@ add_subdirectory(module/light_core)
 add_subdirectory(module/light_core_arch_arm32_m)
 add_subdirectory(module/light_core_board_host_system)
 add_subdirectory(module/light_core_chip_rp2040)
+add_subdirectory(module/light_cli)
 
 light_info("loading platform support database...")
 add_subdirectory(platform/arch)

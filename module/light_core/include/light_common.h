@@ -20,6 +20,7 @@
 // -- IMPORTANT - PLEASE NOTE --
 // by default, we disable all logging and debug features, as these may create
 // performance issues or security vulnerabilities if left enabled accidentally
+// (n.b. although command-line mode defaults to generating info-level logging output)
 #ifndef RUN_MODE
 #define RUN_MODE PRODUCTION
 #endif
@@ -114,27 +115,27 @@
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_TRACE)
 #define light_trace(format, ...) light_log_internal(LOG_TRACE, __func__, format, __VA_ARGS__)
 #else
-#define light_trace(format, ...)
+#define light_trace(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_DEBUG)
 #define light_debug(format, ...) light_log_internal(LOG_DEBUG, __func__, format, __VA_ARGS__)
 #else
-#define light_debug(format, ...)
+#define light_debug(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_INFO)
 #define light_info(format, ...) light_log_internal(LOG_INFO, __func__, format, __VA_ARGS__)
 #else
-#define light_info(format, ...)
+#define light_info(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_WARN)
 #define light_warn(format, ...) light_log_internal(LOG_WARN, __func__, format, __VA_ARGS__)
 #else
-#define light_warn(format, ...)
+#define light_warn(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_ERROR)
 #define light_error(format, ...) light_log_internal(LOG_ERROR, __func__, format, __VA_ARGS__)
 #else
-#define light_error(format, ...)
+#define light_error(format, ...) (void)format
 #endif
 #define light_fatal(format, ...) \
         do { light_log_internal(LOG_ERROR, __func__, format, __VA_ARGS__); exit(-1); } while(0)
@@ -203,6 +204,9 @@
 #define LIGHT_NO_MEMORY                 (uint8_t) 0x2u
 #define LIGHT_NO_RESOURCE               (uint8_t) 0x3u
 #define LIGHT_STATE_INVALID             (uint8_t) 0x4u
+
+#define LIGHT_OPT_LOG_LEVEL             "LIGHT_LOG_LEVEL"
+#define LIGHT_OPT_RUN_MODE              "LIGHT_RUN_MODE"
 
 extern void light_common_init();
 extern const uint8_t *light_error_to_string(uint8_t level);
