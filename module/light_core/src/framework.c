@@ -116,6 +116,7 @@ void light_framework_init(int argc, char *argv[])
         light_info("%s", LF_INFO_STR);
 
         light_object_setup();
+        light_platform_init();
         framework_loading = 1;
         _find_static_modules();
 
@@ -155,8 +156,8 @@ void light_framework_load_application(struct light_application *app, int argc, c
         struct light_event_app_load event = {
                 .argc = argc, .argv = argv
         };
-        light_info("application '%s' loaded successfully", light_application_get_name(app));
         light_module_event_send_to_all(LF_EVENT_APP_LOAD, &event);
+        light_info("application '%s' loaded successfully", light_application_get_name(app));
 }
 // TODO overhaul arraylist API to make it suck less
 void light_framework_load_module(const struct light_module *mod)
@@ -173,7 +174,7 @@ void light_framework_load_module(const struct light_module *mod)
         // send MODULE_LOAD event; module is activated once it returns
         light_module_event_send(mod, LF_EVENT_MODULE_LOAD, NULL);
         light_arraylist_append(&mods_active, &mods_active_count, mod);
-        light_debug("module %s loaded successfully", light_module_get_name(mod));
+        light_trace("module %s loaded successfully", light_module_get_name(mod));
 }
 
 void light_module_register_periodic_task(const struct light_module *module,

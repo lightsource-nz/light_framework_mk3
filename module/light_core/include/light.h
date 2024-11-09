@@ -130,14 +130,14 @@ static inline const char *light_module_get_name(const struct light_module *mod)
 
 #define _light_module_do_event_send(_module, _event, _arg) _module->event(_module, _event, _arg);
 #define light_module_event_send(_module, _event, _arg) do { \
-        light_trace("sending event '%s' to module '%s'", #_event, light_module_get_name(_module)); \
+        light_debug("sending event [%s] to module [%s]", #_event, light_module_get_name(_module)); \
         _light_module_do_event_send(_module, _event, _arg); \
 } while(0)
 
 extern void _light_module_event_do_send_to_all(uint8_t event, void *arg);
 
 #define light_module_event_send_to_all(event, arg) do { \
-        light_debug("sending event [%d] to all modules...", event); \
+        light_debug("sending event [%s] to all modules...", #event); \
         _light_module_event_do_send_to_all(event, (void *)arg); \
 } while(0)
 

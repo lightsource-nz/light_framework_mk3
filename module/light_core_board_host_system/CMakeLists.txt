@@ -12,12 +12,14 @@ target_include_directories(
 target_sources(
         light_core_board_host_system
         INTERFACE
-        ${CMAKE_CURRENT_LIST_DIR}/src/light_core_host_system.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/light_object.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/light_platform.c
 )
 
 target_link_libraries(
         light_core_board_host_system
         INTERFACE
+        rt
         light_core
         ${LIGHT_CORE_LINK_DIR}/objects.host_system.ld
 )

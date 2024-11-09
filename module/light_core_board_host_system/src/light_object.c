@@ -1,9 +1,9 @@
 /*
- *  light_object_host_system.c
+ *  light_core_board_host_system/src/light_object.c
  *  core definitions for the light object model
  * 
  *  authored by Alex Fulton
- *  created june 2024
+ *  created november 2024
  * 
  */
 
