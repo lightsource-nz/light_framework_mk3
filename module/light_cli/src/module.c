@@ -13,7 +13,7 @@
 static void light_command_event(const struct light_module *mod, uint8_t event_id, void *arg);
 static void light_command_process_command_line(int argc, char *argv[]);
 
-Light_Module_Define(light_command, light_command_event, &light_core);
+Light_Module_Define(light_cli, light_command_event, &light_core);
 
 static void light_command_event(const struct light_module *mod, uint8_t event_id, void *arg)
 {
