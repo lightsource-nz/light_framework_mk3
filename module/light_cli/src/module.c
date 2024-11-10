@@ -7,6 +7,7 @@
  * 
  */
 
+#include <module/mod_light_cli.h>
 #include <light_cli.h>
 
 static void light_command_event(const struct light_module *mod, uint8_t event_id, void *arg);
