@@ -6,9 +6,9 @@
  *  authored by Alex Fulton
  *  created november 2024
  */
+#define _XOPEN_SOURCE 700
 #include <light.h>
 
-#define _XOPEN_SOURCE 700
 #include <unistd.h>
 #ifndef _POSIX_TIMERS
         #error "light framework native application host requires POSIX timer support"
