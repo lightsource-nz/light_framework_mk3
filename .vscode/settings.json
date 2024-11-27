@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "time.h": "c",
+        "clock_t.h": "c",
+        "struct_timespec.h": "c",
+        "time_t.h": "c",
+        "types.h": "c",
+        "struct_tm.h": "c",
+        "light_cli.h": "c"
+    }
+}

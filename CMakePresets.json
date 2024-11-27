@@ -1,10 +1,26 @@
 {
-    "version": 9,
-    "include": ["cmake/light_presets/light_presets.json"],
+    "version": 6,
+    "include": [
+        "cmake/light_presets/light_presets.json"
+    ],
     "buildPresets": [
         {
-            "name": "build-light-debug",
-            "configurePreset": "conf-light-debug",
+            "name": "build-light-host-debug",
+            "configurePreset": "conf-light-host-debug",
+            "targets": [
+                "framework_demo"
+            ]
+        },
+        {
+            "name": "build-light-host-release",
+            "configurePreset": "conf-light-host-release",
+            "targets": [
+                "framework_demo"
+            ]
+        },
+        {
+            "name": "build-light-pico-debug",
+            "configurePreset": "conf-light-pico-debug",
             "targets": [
                 "framework_demo"
             ]

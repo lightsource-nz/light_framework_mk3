@@ -4,7 +4,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#include <pico/platform.h>
+
 #define __static_descriptor __in_flash(".descriptors")
+#define __static_object(type) __attribute__ ((section(".light." type)))
+//#define __static_module __attribute__ ((section(".light.modules")))
+#define __static_module __static_object("modules")
 
 // C11 atomics are not supported on Cortex-M0/M0+ CPU cores, so RP2040 targets
 // must use hard spinlocks for synchronization between cores

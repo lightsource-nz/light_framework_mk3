@@ -28,6 +28,7 @@ struct light_periodic {
 static uint8_t app_task_count = 0;
 static struct light_periodic app_tasks[LF_TASKS_MAX];
 
+// TODO need to properly init reference counts in object headers of static modules
 static void _find_static_modules()
 {
         static_modules = (struct light_module **) &__light_modules_start;
@@ -51,7 +52,11 @@ struct lobj_type ltype_light_application = {
         .release = _application_release
 };
 
-static void _event_module_load(const struct light_module *module, struct light_event_app_load *event)
+static void _event_app_load(const struct light_module *module, struct light_event_app_load *event)
+{
+        
+}
+static void _event_module_load(const struct light_module *module)
 {
         
 }
@@ -62,8 +67,11 @@ static void _event_module_unload(const struct light_module *module)
 static void _module_event(const struct light_module *module, uint8_t event, void *arg)
 {
         switch(event) {
+        case LF_EVENT_APP_LOAD:
+                _event_app_load(module, (struct light_event_app_load *)arg);
+                break;
         case LF_EVENT_MODULE_LOAD:
-                _event_module_load(module, (struct light_event_app_load *)arg);
+                _event_module_load(module);
                 break;
         case LF_EVENT_MODULE_UNLOAD:
                 _event_module_unload(module);
@@ -86,9 +94,9 @@ static struct light_module *mods_active[LF_STATIC_MODULES_MAX];
 
 static uint8_t _lf_app_task(struct light_application *app)
 {
-        light_debug("Calling main task for application '%s', system time =%dms",
+        light_debug("Calling main task for application '%s', system time =%ums",
                                                         light_application_get_name(app),
-                                                        0); // TODO make timekeeping API
+                                                        light_platform_get_time_since_init());
 
         return app->app_main(app);
 }
@@ -147,7 +155,7 @@ void light_framework_load_application(struct light_application *app, int argc, c
                 light_fatal("attempted to load an application before calling light_framework_init()","");
         // TODO verify at build-time that we support the runtime version requested by this app
         light_info("loading application '%s': app version %s, framework version %s",
-                                        light_application_get_name(app),"NULL","NULL");
+                                        light_application_get_name(app),"NULL",LF_VERSION_STR);
         // this call recursively loads the entire module tree for the application
         light_framework_load_module(light_application_get_main_module(app));
 
@@ -166,7 +174,7 @@ void light_framework_load_module(const struct light_module *mod)
         light_arraylist_append(&mods_loading, &mods_loading_count, mod);
 
         // make sure all dependency modules are loaded before activating
-        for(uint8_t i = 0; mod->module_deps[i] != NULL; i++) {
+        for(uint8_t i = 0; mod->module_deps[i] != NULL && i < LF_MODULE_DEPS_MAX; i++) {
                 if(light_arraylist_indexof(&mods_loading, mods_loading_count, mod->module_deps[i]) == -1) {
                         light_framework_load_module(mod->module_deps[i]);
                 }

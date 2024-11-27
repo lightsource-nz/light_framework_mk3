@@ -8,6 +8,9 @@
  */
 
 #include <light_cli.h>
+#include <stdio.h>
+
+#include "cli_private.h"
 
 #define MAX_TOKENS 64
 
@@ -22,6 +25,7 @@ static struct light_command *root_command[LIGHT_CLI_MAX_SUBCOMMANDS];
 
 void light_cli_init()
 {
+        light_cli_message_init();
         next_token = 0;
         next_root_command = 0;
 }

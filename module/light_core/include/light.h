@@ -18,7 +18,7 @@
 
 #define LF_STATIC_MODULES_MAX           16
 
-#define LF_MODULE_DEPS_MAX              8
+#define LF_MODULE_DEPS_MAX              32
 
 #define LF_STATUS_RUN                   0
 #define LF_STATUS_SHUTDOWN              1
@@ -63,8 +63,6 @@ struct light_event_app_load {
         .event = _event, \
         .module_deps = { __VA_ARGS__ } \
 }
-
-#define __static_module __attribute__ ((section(".light.modules")))
 
 #define Light_Module_Declare(name) \
         extern const struct light_module name;

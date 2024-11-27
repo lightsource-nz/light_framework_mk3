@@ -1,7 +1,8 @@
 
 add_library(light_core_chip_rp2040 INTERFACE)
 
-# register this library as the provider of the light_object library for the rp2040 chip architecture
+#   register this library as the provider of the light_object library
+# for the rp2040 chip architecture
 light_core_add_chip_impl(rp2040 light_core_chip_rp2040)
 
 target_sources(

@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#define __static_descriptor
+#define __static_object(type) __attribute__ ((section(".light." type)))
+//#define __static_module __attribute__ ((section(".light.modules")))
+#define __static_module __static_object("modules")
+
 // at least as of now, all host platforms can be assumed to have hardware atomics
 // and an implementation of at least the C11 atomic types
 #include <stdatomic.h>

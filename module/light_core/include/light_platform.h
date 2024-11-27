@@ -20,7 +20,8 @@ static inline bool light_platform_timer_get_expired(struct lp_timer *timer)
     return light_platform_timer_get_remaining_ms(timer) == 0;
 }
 
-extern uint32_t light_platform_get_system_time_ms();
+extern uint32_t light_platform_get_absolute_time_ms();
+extern uint32_t light_platform_get_time_since_init();
 extern void light_platform_sleep_ms(uint32_t period);   
 
 #endif

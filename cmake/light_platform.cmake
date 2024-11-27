@@ -49,7 +49,7 @@ macro(light_platform_on_include)
         endif()
 
         light_declare(LIGHT_BOARD)
-        if(LIGHT_PLATFORM STREQUAL "HOST")
+        if(LIGHT_PLATFORM STREQUAL "HOST" AND NOT DEFINED LIGHT_BOARD)
                 light_set(LIGHT_BOARD host_system)
         endif()
         if(NOT DEFINED LIGHT_BOARD)
