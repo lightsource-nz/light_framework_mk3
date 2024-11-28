@@ -74,7 +74,7 @@ struct light_event_app_load {
 #define Light_Application(_name, _event, _main, ...) \
 { \
         .header = Light_Object_Static_RO(_name, NULL, &ltype_light_application), \
-        .module = Light_Module_Static("mod_" _name, _lf_app_event, __VA_ARGS__), \
+        .module = Light_Module_Static(_name, _lf_app_event, __VA_ARGS__), \
         .event = _event, \
         .app_main = _main \
 }
