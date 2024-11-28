@@ -8,6 +8,6 @@
 
 #define LIGHT_CLI_INFO_STR              "Light USB Host v" LUSB_HOST_MIDI_VERSION_STR
 
-Light_Module_Declare(light_cli)
+Light_Module_Declare(light_cli);
 
 #endif

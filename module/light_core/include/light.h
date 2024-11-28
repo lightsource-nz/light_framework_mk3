@@ -65,11 +65,11 @@ struct light_event_app_load {
 }
 
 #define Light_Module_Declare(name) \
-        extern const struct light_module name;
+        extern const struct light_module name
 
 #define Light_Module_Define(name, event, ...) \
         const struct light_module __static_descriptor name = Light_Module_Static(#name, event, __VA_ARGS__); \
-        static const struct light_module __static_module *this_module = &name;
+        static const struct light_module __static_module *this_module = &name
 
 #define Light_Application(_name, _event, _main, ...) \
 { \
@@ -83,13 +83,13 @@ struct light_event_app_load {
         static struct light_application __this_app = Light_Application(#name, event, main, __VA_ARGS__); \
         static struct light_module __static_module *this_module = &__this_app.module; \
         struct light_module *mod_ ## name = &__this_app.module; \
-        struct light_application *this_app = &__this_app;
+        struct light_application *this_app = &__this_app
 
 #define to_module(ptr) container_of(ptr, struct light_module, header)
 #define to_application(ptr) container_of(ptr, struct light_application, header)
 #define module_to_application(ptr) container_of(ptr, struct light_application, module)
 
-Light_Module_Declare(light_core)
+Light_Module_Declare(light_core);
 
 // at least for now this symbol is a single global value determined at build-time
 extern struct light_application *this_app;
