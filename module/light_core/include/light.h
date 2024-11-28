@@ -126,7 +126,7 @@ static inline const char *light_module_get_name(const struct light_module *mod)
         return mod->header.id;
 }
 
-#define _light_module_do_event_send(_module, _event, _arg) _module->event(_module, _event, _arg);
+#define _light_module_do_event_send(_module, _event, _arg) _module->event(_module, _event, _arg)
 #define light_module_event_send(_module, _event, _arg) do { \
         light_debug("sending event [%s] to module [%s]", #_event, light_module_get_name(_module)); \
         _light_module_do_event_send(_module, _event, _arg); \
