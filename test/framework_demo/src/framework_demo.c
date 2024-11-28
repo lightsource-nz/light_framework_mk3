@@ -7,18 +7,18 @@ Light_Application_Define(framework_demo, framework_demo_app_event, framework_dem
 
 void main(int argc, char *argv[])
 {
-        light_framework_init(argc, argv);
-        light_framework_run();
+        light_framework_init();
+        light_framework_run(argc, argv);
 }
 
 static void framework_demo_app_event(const struct light_module *mod, uint8_t event, void *arg)
 {
         switch (event) {
-        case LF_EVENT_APP_LOAD:
-                light_info("demo app received LOAD event","");
+        case LF_EVENT_APP_LAUNCH:
+                light_info("demo app received LAUNCH event","");
                 break;
-        case LF_EVENT_APP_UNLOAD:
-                light_info("demo app received UNLOAD event","");
+        case LF_EVENT_APP_SHUTDOWN:
+                light_info("demo app received SHUTDOWN event","");
                 break;
         }
 }

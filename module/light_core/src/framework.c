@@ -52,7 +52,7 @@ struct lobj_type ltype_light_application = {
         .release = _application_release
 };
 
-static void _event_app_load(const struct light_module *module, struct light_event_app_load *event)
+static void _event_app_launch(const struct light_module *module, struct light_event_app_launch *event)
 {
         
 }
@@ -67,8 +67,8 @@ static void _event_module_unload(const struct light_module *module)
 static void _module_event(const struct light_module *module, uint8_t event, void *arg)
 {
         switch(event) {
-        case LF_EVENT_APP_LOAD:
-                _event_app_load(module, (struct light_event_app_load *)arg);
+        case LF_EVENT_APP_LAUNCH:
+                _event_app_launch(module, (struct light_event_app_launch *)arg);
                 break;
         case LF_EVENT_MODULE_LOAD:
                 _event_module_load(module);
@@ -117,7 +117,7 @@ void _lf_app_event(const struct light_module *module, uint8_t event, void *arg)
         this_app->event(module, event, arg);
         application_loaded = 1;
 }
-void light_framework_init(int argc, char *argv[])
+void light_framework_init()
 {
         light_common_init();
         light_info("Loading Light Framework runtime...", "");
@@ -129,13 +129,20 @@ void light_framework_init(int argc, char *argv[])
         _find_static_modules();
 
         root_application = this_app;
-        light_framework_load_application(root_application, argc, argv);
+        light_framework_load_application(root_application);
         framework_loaded = 1;
 }
  
 // begin execution of all loaded applications and periodic tasks
-void light_framework_run()
+void light_framework_run(int argc, char *argv[])
 {
+        // first we send all modules the APP_LAUNCH event...
+        struct light_event_app_launch event = {
+                .argc = argc, .argv = argv
+        };
+        light_module_event_send_to_all(LF_EVENT_APP_LAUNCH, &event);
+
+        // ...then we begin scheduling application tasks
         struct light_application *app = light_framework_get_root_application();
         uint8_t status = LF_STATUS_RUN;
         struct light_periodic *task;
@@ -149,7 +156,7 @@ void light_framework_run()
                                         task->name, light_task_status_string(status));
 }
 
-void light_framework_load_application(struct light_application *app, int argc, char *argv[])
+void light_framework_load_application(struct light_application *app)
 {
         if(!framework_loading)
                 light_fatal("attempted to load an application before calling light_framework_init()","");
@@ -159,12 +166,6 @@ void light_framework_load_application(struct light_application *app, int argc, c
         // this call recursively loads the entire module tree for the application
         light_framework_load_module(light_application_get_main_module(app));
 
-        // at this point, all modules are loaded successfully, so it's time to
-        // send the APP_LOAD event
-        struct light_event_app_load event = {
-                .argc = argc, .argv = argv
-        };
-        light_module_event_send_to_all(LF_EVENT_APP_LOAD, &event);
         light_info("application '%s' loaded successfully", light_application_get_name(app));
 }
 // TODO overhaul arraylist API to make it suck less

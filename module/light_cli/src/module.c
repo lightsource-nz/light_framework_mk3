@@ -22,8 +22,8 @@ static void light_command_event(const struct light_module *mod, uint8_t event_id
         case LF_EVENT_MODULE_LOAD:
                 light_cli_init();
                 break;
-        case LF_EVENT_APP_LOAD:
-                struct light_event_app_load *event = (struct light_event_app_load *)arg;
+        case LF_EVENT_APP_LAUNCH:
+                struct light_event_app_launch *event = (struct light_event_app_launch *)arg;
                 light_command_process_command_line(event->argc, event->argv);
                 break;
         

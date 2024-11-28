@@ -13,8 +13,8 @@
 
 #define LF_EVENT_MODULE_LOAD            0
 #define LF_EVENT_MODULE_UNLOAD          1
-#define LF_EVENT_APP_LOAD               2
-#define LF_EVENT_APP_UNLOAD             3
+#define LF_EVENT_APP_LAUNCH             2
+#define LF_EVENT_APP_SHUTDOWN           3
 
 #define LF_STATIC_MODULES_MAX           16
 
@@ -46,7 +46,7 @@ struct light_application {
         uint8_t (*app_main)(struct light_application *);
 };
 
-struct light_event_app_load {
+struct light_event_app_launch {
         int argc;
         char **argv;
 };
@@ -100,10 +100,9 @@ extern struct lobj_type ltype_light_application;
 extern void _lf_app_event(const struct light_module *module, uint8_t event, void *arg);
 
 // framework entry point, enumerates module dependency graph and loads required modules
-extern void light_framework_init(int argc, char *argv[]);
-extern void light_framework_run();
-extern void light_framework_load_application(
-                        struct light_application *app, int argc, char *argv[]);
+extern void light_framework_init();
+extern void light_framework_run(int argc, char *argv[]);
+extern void light_framework_load_application(struct light_application *app);
 extern void light_framework_load_module(const struct light_module *mod);
 extern struct light_application *light_framework_get_root_application();
 extern const char *light_task_status_string(uint8_t status);
