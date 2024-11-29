@@ -21,15 +21,12 @@ add_subdirectory(platform/arch)
 add_subdirectory(platform/chip)
 add_subdirectory(platform/board)
 
+# TODO check if this call is as redundant as it looks
 if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
         light_load_pico_sdk_support()
 endif()
 
 # tests
-add_subdirectory(test/framework_demo)
+add_subdirectory(test/demo_cli)
 
 light_select_board(${LIGHT_BOARD})
-
-if(NOT_ROOT)
-        light_promote_shared_vars()
-endif()

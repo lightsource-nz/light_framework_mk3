@@ -3,27 +3,51 @@
     "include": [
         "cmake/light_presets/light_presets.json"
     ],
+    "configurePresets": [
+        {
+            "name": "conf-demo-cli-base",
+            "hidden": true,
+            "inherits": ["conf-light-host-base"],
+            "binaryDir": "${sourceDir}/build",
+            "generator": "Ninja"
+        },
+        {
+            "name": "conf-demo-cli-debug",
+            "inherits": [
+                "conf-demo-cli-base",
+                "conf-light-debug"
+            ]
+        },
+        {
+            "name": "conf-demo-cli-trace",
+            "inherits": [
+                "conf-demo-cli-base",
+                "conf-light-trace"
+            ]
+        },
+        {
+            "name": "conf-demo-cli-release",
+            "inherits": [
+                "conf-demo-cli-base",
+                "conf-light-release"
+            ]
+        }
+    ],
     "buildPresets": [
         {
-            "name": "build-light-host-debug",
-            "configurePreset": "conf-light-host-debug",
-            "targets": [
-                "framework_demo"
-            ]
+            "name": "build-demo-cli-debug",
+            "configurePreset": "conf-demo-cli-debug",
+            "targets": ["demo_cli"]
         },
         {
-            "name": "build-light-host-release",
-            "configurePreset": "conf-light-host-release",
-            "targets": [
-                "framework_demo"
-            ]
+            "name": "build-demo-cli-trace",
+            "configurePreset": "conf-demo-cli-trace",
+            "targets": ["demo_cli"]
         },
         {
-            "name": "build-light-pico-debug",
-            "configurePreset": "conf-light-pico-debug",
-            "targets": [
-                "framework_demo"
-            ]
+            "name": "build-demo-cli-release",
+            "configurePreset": "conf-demo-cli-release",
+            "targets": ["demo_cli"]
         }
     ]
 }
