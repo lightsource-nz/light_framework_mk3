@@ -1,7 +1,7 @@
 #ifndef _LIGHT_OBJECT_H
 #define _LIGHT_OBJECT_H
 
-#define LOM_OBJ_NAME_LENGTH 32
+#define LIGHT_OBJ_NAME_LENGTH 32
 
 struct light_object {
         light_ref_t ref_count;
@@ -10,11 +10,11 @@ struct light_object {
         uint16_t state_initialized: 1;
         uint16_t is_static: 1;
         uint16_t is_readonly: 1;
-        uint8_t id[LOM_OBJ_NAME_LENGTH];
+        uint8_t id[LIGHT_OBJ_NAME_LENGTH];
 } __packed_aligned;
  
 struct lobj_type {
-        uint8_t id[LOM_OBJ_NAME_LENGTH];
+        uint8_t id[LIGHT_OBJ_NAME_LENGTH];
         void (*release)(struct light_object*);
         void (*evt_add)(struct light_object *obj, struct light_object *parent);
         void (*evt_child_add)(struct light_object *obj, struct light_object *child);
