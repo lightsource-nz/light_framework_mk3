@@ -1,4 +1,4 @@
-add_subdirectory(host_system_chip)
+add_subdirectory(host_os_chip)
 add_subdirectory(pico_hostmode)
 add_subdirectory(rp2040)
 add_subdirectory(stm32h743)

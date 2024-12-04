@@ -1,5 +1,5 @@
 /*
- *  light_core_board_host_system/src/light_platform.c
+ *  light_core_board_host_os/src/light_platform.c
  *  provides access to low level platform facilities such as timers
  *  (host system version- uses POSIX APIs and aims for maximum compatibility)
  * 

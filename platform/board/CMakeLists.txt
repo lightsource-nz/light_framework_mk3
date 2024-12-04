@@ -1,4 +1,4 @@
-add_subdirectory(host_system_board)
+add_subdirectory(host_os_board)
 add_subdirectory(blackpill)
 add_subdirectory(bluepill_plus)
 add_subdirectory(mini_stm32h7)

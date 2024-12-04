@@ -6,6 +6,7 @@
         "time_t.h": "c",
         "types.h": "c",
         "struct_tm.h": "c",
-        "light_cli.h": "c"
+        "light_cli.h": "c",
+        "typeinfo": "c"
     }
 }

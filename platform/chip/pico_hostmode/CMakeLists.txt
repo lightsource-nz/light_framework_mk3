@@ -4,7 +4,7 @@ function(chip_pico_hostmode_select)
         
 endfunction()
 
-light_add_chip(pico_hostmode host_system chip_pico_hostmode_select)
+light_add_chip(pico_hostmode host_os chip_pico_hostmode_select)
 
                   
 target_include_directories(

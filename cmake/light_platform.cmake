@@ -50,7 +50,7 @@ macro(light_platform_on_include)
 
         light_declare(LIGHT_BOARD)
         if(LIGHT_PLATFORM STREQUAL "HOST" AND NOT DEFINED LIGHT_BOARD)
-                light_set(LIGHT_BOARD host_system)
+                light_set(LIGHT_BOARD host_os)
         endif()
         if(NOT DEFINED LIGHT_BOARD)
                 light_error("LIGHT_BOARD is not set")

@@ -12,7 +12,7 @@ project(light_framework_mk3 C CXX ASM)
 # modules
 add_subdirectory(module/light_core)
 add_subdirectory(module/light_core_arch_arm32_m)
-add_subdirectory(module/light_core_arch_host_system)
+add_subdirectory(module/light_core_arch_host_os)
 add_subdirectory(module/light_core_chip_rp2040)
 add_subdirectory(module/light_cli)
 

@@ -6,9 +6,9 @@
  *  created november 2024
  * 
  */
-
 #include <light_cli.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "cli_private.h"
 
@@ -20,16 +20,16 @@ struct command_token {
 
 static uint8_t next_token;
 static struct command_token tokens[MAX_TOKENS];
-static uint8_t next_root_command;
-static struct light_command *root_command[LIGHT_CLI_MAX_SUBCOMMANDS];
+
+//   we use this structure as a placeholder to store actual root-level commands,
+// but it has no name and cannot be invoked
+static struct light_command root_command;
 
 void light_cli_init()
 {
         light_cli_message_init();
         next_token = 0;
-        next_root_command = 0;
 }
-
 void light_command_process_command_line(int argc, char *argv[])
 {
         // command line parsing algorithm
@@ -45,42 +45,58 @@ void light_command_process_command_line(int argc, char *argv[])
 
         }
 }
-
-struct light_command *light_cli_register_subcommand(
+struct light_command *light_cli_create_subcommand(
                                 struct light_command *parent,
                                 const uint8_t *name,
                                 const uint8_t *description,
                                 void (*handler)(struct light_command *))
 {
-        if(parent && parent->child_count >= LIGHT_CLI_MAX_SUBCOMMANDS) {
-                light_warn("failed to register command '%s', parent command exceeded maximum subcommand count", name);
+        struct light_command *command;
+        if(!(command = light_alloc(sizeof(struct light_command)))) {
+                light_warn("could not create new command '%s', failed to allocate memory", name);
                 return NULL;
         }
-        struct light_command *command = light_alloc(sizeof(struct light_command));
 
         command->name = name;
         command->description = description;
         command->handler = handler;
-
+        light_cli_register_subcommand(parent, command);
         return command;
 }
-extern void light_cli_command_add_child_(
+void light_cli_register_subcommand(
                                 struct light_command *parent,
-                                struct light_command *child
-);
-extern uint32_t light_cli_register_switch_ctx(
+                                struct light_command *command)
+{        
+        if(parent == NULL) return light_cli_register_subcommand(&root_command, command);
+        if(parent && parent->child_count >= LIGHT_CLI_MAX_SUBCOMMANDS) {
+                light_warn("failed to register command '%s', parent command exceeded maximum subcommand count", command->name);
+        }
+        parent->child[parent->child_count++] = command;
+        light_trace("added subcommand '%s' to command '%s'", command->name);
+}
+void light_cli_register_option_ctx(
                                 struct light_command *parent,
-                                const uint8_t *short_name,
-                                const uint8_t *long_name,
-                                const uint8_t *description);
-extern uint32_t light_cli_register_option_ctx(
-                                struct light_command *parent,
-                                const uint8_t *short_name,
-                                const uint8_t *long_name,
-                                uint8_t args_count,
-                                const uint8_t *description);
+                                struct light_cli_option option)
+{
+        if(!parent->option_count >= LIGHT_CLI_MAX_OPTIONS) {
+                parent->options[parent->child_count++] = option;
+        } else {
+                light_warn("could not add option '%s' to command '%s': max options reached", light_cli_option_get_name(&option), light_cli_command_get_name(parent));
+        }
+}
 
 struct light_command *light_cli_find_subcommand(
-                                struct light_command *parent, uint8_t *sub_name);
+                                struct light_command *parent, uint8_t *name)
+{
+        if(parent == NULL) {
+                return light_cli_find_subcommand(&root_command, name);
+        }
+        for(uint8_t i = 0; i < parent->child_count && i < LIGHT_CLI_MAX_SUBCOMMANDS; i++) {
+                if(strncmp(light_cli_command_get_name(parent->child[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
+                        return parent->child[i];
+                }
+        }
+        return NULL;
+}
 bool light_cli_get_switch_value(uint32_t option_id);
 uint8_t *light_cli_get_option_value(uint32_t option_id);

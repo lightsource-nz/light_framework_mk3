@@ -113,41 +113,45 @@
 
 
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_TRACE)
-#define light_trace(format, ...) light_log_internal(LOG_TRACE, __func__, format, __VA_ARGS__)
+#define light_trace(format, ...) light_log_internal(LOG_TRACE, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_trace(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_DEBUG)
-#define light_debug(format, ...) light_log_internal(LOG_DEBUG, __func__, format, __VA_ARGS__)
+#define light_debug(format, ...) light_log_internal(LOG_DEBUG, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_debug(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_INFO)
-#define light_info(format, ...) light_log_internal(LOG_INFO, __func__, format, __VA_ARGS__)
+#define light_info(format, ...) light_log_internal(LOG_INFO, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_info(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_WARN)
-#define light_warn(format, ...) light_log_internal(LOG_WARN, __func__, format, __VA_ARGS__)
+#define light_warn(format, ...) light_log_internal(LOG_WARN, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_warn(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_ERROR)
-#define light_error(format, ...) light_log_internal(LOG_ERROR, __func__, format, __VA_ARGS__)
+#define light_error(format, ...) light_log_internal(LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_error(format, ...) (void)format
 #endif
 #define light_fatal(format, ...) \
-        do { light_log_internal(LOG_ERROR, __func__, format, __VA_ARGS__); exit(-1); } while(0)
+do { \
+        light_log_internal(LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__); \
+        exit(-1); \
+} while(0)
 
 // by default, assume a bare-metal target system
 #ifndef SYSTEM
 #define SYSTEM NONE
 #endif
 
-#define SYSTEM_NONE           0
-#define SYSTEM_PICO_SDK       1
-#define SYSTEM_FREERTOS       2
+#define SYSTEM_NONE             0
+#define SYSTEM_HOST_OS          1
+#define SYSTEM_PICO_SDK         2
+#define SYSTEM_FREERTOS         3
 
 #define _GET_SYSTEM(system) SYSTEM_## system
 #define GET_SYSTEM(system) _GET_SYSTEM(system)

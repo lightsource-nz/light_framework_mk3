@@ -1,5 +1,5 @@
 /*
- *  light_core_board_host_system/src/light_object.c
+ *  light_core_board_host_os/src/light_object.c
  *  core definitions for the light object model
  * 
  *  authored by Alex Fulton
@@ -89,7 +89,7 @@ static uint8_t light_object_set_name_va(struct light_object *obj, const uint8_t 
                 // TODO log empty name field error
                 return LIGHT_INVALID;
         }
-        vsnprintf(obj->id, LOM_OBJ_NAME_LENGTH, format, vargs);
+        vsnprintf(obj->id, LIGHT_OBJ_NAME_LENGTH, format, vargs);
         return LIGHT_OK;
 }
 static int light_object_add_internal(struct light_object_registry *reg, struct light_object *obj)
