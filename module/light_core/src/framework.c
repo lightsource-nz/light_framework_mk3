@@ -31,6 +31,8 @@ static struct light_periodic app_tasks[LF_TASKS_MAX];
 // TODO need to properly init reference counts in object headers of static modules
 static void _find_static_modules()
 {
+        light_trace("&__light_modules_start=0x%x, &__light_modules_end=0x%x, sizeof(void *)=0x%x", &__light_modules_start, &__light_modules_end, sizeof(void *));
+        light_trace("((_start - _end = 0x%x) / 0x%x)=0x%x",((uintptr_t)&__light_modules_end) - (uintptr_t)&__light_modules_start, sizeof(void *), (((uintptr_t)&__light_modules_end) - ((uintptr_t)&__light_modules_start)) / sizeof(void *));
         static_modules = (struct light_module **) &__light_modules_start;
         static_module_count = (((uintptr_t)&__light_modules_end) - ((uintptr_t)&__light_modules_start)) / sizeof(void *);
         light_debug("located %d static modules", static_module_count);

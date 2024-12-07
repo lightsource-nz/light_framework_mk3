@@ -12,6 +12,14 @@
 
 #include "cli_private.h"
 
+#define TYPE_NAME_COMMAND               "light_cli:command"
+
+static void command_release(struct light_object *cmd);
+struct lobj_type ltype_cli_command = {
+        .id = TYPE_NAME_COMMAND,
+        .release = command_release
+};
+
 #define MAX_TOKENS 64
 
 struct command_token {
@@ -25,6 +33,10 @@ static struct command_token tokens[MAX_TOKENS];
 // but it has no name and cannot be invoked
 static struct light_command root_command;
 
+static void command_release(struct light_object *cmd)
+{
+        light_free(to_command(cmd));
+}
 void light_cli_init()
 {
         light_cli_message_init();

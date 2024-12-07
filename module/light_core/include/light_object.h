@@ -27,7 +27,7 @@ struct light_static {
 };
 
 #define Light_Object_Full(_id, _parent, _type, _static, _readonly) \
-        (struct light_object) { \
+        { \
                 .id = _id, \
                 .parent = _parent, \
                 .type = _type, \

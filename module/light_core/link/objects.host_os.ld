@@ -4,7 +4,7 @@ SECTIONS
         {
                 . = ALIGN(4);
                 __light_modules_start = .;
-                KEEP(*(.light.module))
+                KEEP(*(.light.static_module))
                 __light_modules_end = .;
         }
         .light.static :

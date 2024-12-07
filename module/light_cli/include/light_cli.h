@@ -57,7 +57,7 @@ struct light_cli_option {
         const uint8_t *description;
 };
 struct light_command {
-        struct light_command *parent;
+        const struct light_command *parent;
         struct light_object header;
         const uint8_t *name;
         const uint8_t *description;
@@ -70,28 +70,44 @@ struct light_command {
 
 extern struct lobj_type ltype_cli_command;
 
-#define Light_Command_Static(name, parent, desc, handler, ...) \
-        (struct light_command) { \
-                .header = Light_Object_Static_RO(name, &parent->header, &ltype_cli_command), \
-                .name = name, \
-                .parent = parent, \
-                .description = desc, \
-                .handler = handler, \
+#define Light_Subcommand_Static(_name, _parent, _desc, _handler, ...) \
+        { \
+                .header = Light_Object_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
+                .name = _name, \
+                .description = _desc, \
+                .parent = _parent, \
+                .handler = _handler, \
+                .options = { __VA_ARGS__ } \
+        }
+#define Light_Command_Static(_name, _desc, _handler, ...) \
+        { \
+                .header = Light_Object_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
+                .name = _name, \
+                .parent = NULL, \
+                .description = _desc, \
+                .handler = _handler, \
                 .options = { __VA_ARGS__ } \
         }
 
 #define Light_Command_Option(command, code, name, args_count, description) \
-        (struct light_cli_option) { code, name, (args_count), description }
+        { code, name, (args_count), description }
 
 #define Light_Command_Switch(code, name, description) \
         Light_Command_Option(code, name, 0, description)
 
-#define Light_Command_Declare(sym_name) \
-        extern const struct light_command *sym_name
+#define Light_Subcommand_Declare(sym_name, parent) \
+        extern struct light_command sym_name
 
-#define Light_Command_Define(sym_name, name, parent, description, handler) \
-        static const struct light_command __static_descriptor _## sym_name = Light_Command_Static(name, parent, description, handler); \
-        const struct light_module __static_object *sym_name = &_## sym_name
+#define Light_Subcommand_Define(sym_name, parent, name, description, handler) \
+        struct light_command __static_descriptor sym_name = \
+                Light_Subcommand_Static(name, parent, description, handler); \
+        static const __static_object struct light_command *_## sym_name = &sym_name;
+
+#define Light_Command_Declare(sym_name) Light_Subcommand_Declare(sym_name, NULL)
+
+#define Light_Command_Define(sym_name, name, description, handler) \
+        struct light_command __static_descriptor sym_name = \
+                Light_Command_Static(name, description, handler)
 
 #define Light_Command_Option_Declare(command, sym_name) \
         extern const struct light_cli_option *sym_name
@@ -106,7 +122,7 @@ Light_CLI_MQueue_Declare(light_cli_mqueue_default);
 // called at module load-time by framework
 extern void light_cli_init();
 
-static inline struct light_command *light_cli_command_get_parent(struct light_command *command)
+static inline const struct light_command *light_cli_command_get_parent(struct light_command *command)
 {
         return command->parent;
 }
