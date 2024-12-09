@@ -39,11 +39,6 @@ struct light_static {
 #define Light_Object_RO(_id, _parent, _type) Light_Object_Full(_id, _parent, _type, 0, 1)
 #define Light_Object_Static_RO(_id, _parent, _type) Light_Object_Full(_id, _parent, _type, 1, 1)
 
-
-#define Light_Static_Define(_type, sym_name, value) \
-        static const _type __static_descriptor _## sym_name = Light_Command_Static(name, parent, description, handler); \
-        const struct light_static __static_object *sym_name = &_## name
-
 // initialize default object registry, must be called before any light_object API functions
 extern void light_object_setup();
 extern struct light_object_registry *light_object_registry_default();
