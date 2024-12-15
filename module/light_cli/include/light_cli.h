@@ -49,44 +49,63 @@ extern struct lobj_type ltype_cli_message_queue;
 
 #define LIGHT_CLI_MAX_SUBCOMMANDS               16
 #define LIGHT_CLI_MAX_OPTIONS                   16
+#define LIGHT_CLI_MAX_ARGS                      16
+#define LIGHT_CLI_OPTION_RAWVALUE_MAX           32
+#define LIGHT_CLI_OPTION_VALUE_MAX              32
 
 struct light_cli_option {
-        char code;
+        const uint8_t code;
         const uint8_t *name;
         uint8_t args_count;
         const uint8_t *description;
 };
+struct light_cli_invocation;
 struct light_command {
         const struct light_command *parent;
         struct light_object header;
         const uint8_t *name;
         const uint8_t *description;
-        void (*handler)(struct light_command *);
+        struct light_cli_invocation_result (*handler)(struct light_cli_invocation *);
+        uint8_t arg_min;
+        uint8_t arg_max;
         uint8_t option_count;
         uint8_t child_count;
-        struct light_cli_option options[LIGHT_CLI_MAX_OPTIONS];
+        struct light_cli_option *option[LIGHT_CLI_MAX_OPTIONS];
         struct light_command *child[LIGHT_CLI_MAX_SUBCOMMANDS];
+};
+struct light_cli_option_value {
+        const struct light_cli_option *option;
+        uint8_t value[LIGHT_CLI_OPTION_VALUE_MAX];
+};
+struct light_cli_invocation {
+        struct light_command *target;
+        uint8_t option_count;
+        struct light_cli_option_value option[LIGHT_CLI_MAX_OPTIONS];
+        uint8_t args_bound;
+        uint8_t *arg[LIGHT_CLI_MAX_ARGS];
+};
+#define LIGHT_CLI_RESULT_SUCCESS        0
+#define LIGHT_CLI_RESULT_ALIAS          1
+#define LIGHT_CLI_RESULT_ERROR          2
+struct light_cli_invocation_result {
+        uint8_t code;
+        union value {
+                struct light_command *command;
+        } value;
 };
 
 extern struct lobj_type ltype_cli_command;
-
-#define Light_Subcommand_Static(_name, _parent, _desc, _handler, ...) \
+// static command max-args value is determined at load time by the size of .arg_name
+#define Light_Command_Static(_name, _parent, _desc, _handler, _arg_min, _arg_max, ...) \
         { \
                 .header = Light_Object_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
                 .name = _name, \
-                .description = _desc, \
                 .parent = _parent, \
-                .handler = _handler, \
-                .options = { __VA_ARGS__ } \
-        }
-#define Light_Command_Static(_name, _desc, _handler, ...) \
-        { \
-                .header = Light_Object_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
-                .name = _name, \
-                .parent = NULL, \
                 .description = _desc, \
                 .handler = _handler, \
-                .options = { __VA_ARGS__ } \
+                .arg_min = _arg_min, \
+                .arg_max = _arg_max, \
+                .option = { __VA_ARGS__ } \
         }
 
 #define Light_Command_Option(command, code, name, args_count, description) \
@@ -95,19 +114,15 @@ extern struct lobj_type ltype_cli_command;
 #define Light_Command_Switch(code, name, description) \
         Light_Command_Option(code, name, 0, description)
 
-#define Light_Subcommand_Declare(sym_name, parent) \
+#define Light_Command_Declare(sym_name, parent) \
         extern struct light_command sym_name
 
-#define Light_Subcommand_Define(sym_name, parent, name, description, handler) \
-        struct light_command __static_descriptor sym_name = \
-                Light_Subcommand_Static(name, parent, description, handler); \
-        static const __static_object struct light_command *_## sym_name = &sym_name;
+extern void light_cli__autoload_command(void *object);
 
-#define Light_Command_Declare(sym_name) Light_Subcommand_Declare(sym_name, NULL)
-
-#define Light_Command_Define(sym_name, name, description, handler) \
+#define Light_Command_Define(sym_name, parent, name, description, handler, _arg_min, _arg_max, ...) \
         struct light_command __static_descriptor sym_name = \
-                Light_Command_Static(name, description, handler)
+                Light_Command_Static(name, parent, description, handler, _arg_min, _arg_max, __VA_ARGS__); \
+        static const __static_object struct light_command *autoload_## sym_name = &sym_name;
 
 #define Light_Command_Option_Declare(command, sym_name) \
         extern const struct light_cli_option *sym_name
@@ -152,6 +167,13 @@ static inline const uint8_t *light_cli_option_get_description(struct light_cli_o
         return option->description;
 }
 
+extern struct light_cli_option *light_cli_find_option_ctx(
+                                struct light_command *command, const uint8_t *name);
+static inline struct light_cli_option *light_cli_find_option(const uint8_t *name)
+{
+        return light_cli_find_option_ctx(NULL, name);
+}
+
 extern void light_cli_mqueue_init(struct light_cli_mqueue *queue);
 extern void light_cli_mqueue_add(struct light_cli_mqueue *queue, uint8_t flags, uint8_t *text, uint8_t argc, void *argv);
 
@@ -168,18 +190,18 @@ extern void light_cli_message_f_fast(const uint8_t *format, ...);
 // the kernel worker can perform string formatting
 extern void light_cli_message_f_faster(const uint8_t *format, ...);
 // called at application load-time by framework
-extern void light_cli_process_command_line(int argc, char *argv[]);
+extern uint8_t light_cli_process_command_line(struct light_command *root, struct light_cli_invocation *invoke, int argc, char *argv[]);
 
 // command and option API
 extern struct light_command *light_cli_create_subcommand(
                                 struct light_command *parent,
                                 const uint8_t *name,
                                 const uint8_t *description,
-                                void (*handler)(struct light_command *)); // TODO define type for parsed options and args
+                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *)); // TODO define type for parsed options and args
 static inline struct light_command *light_cli_create_command(
                                 const uint8_t *name,
                                 const uint8_t *description,
-                                void (*handler)(struct light_command *))
+                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *))
 {
         return light_cli_create_subcommand(NULL, name, description, handler);
 }
@@ -191,46 +213,50 @@ static inline void light_cli_register_command(struct light_command *command)
         light_cli_register_subcommand(NULL, command);
 }
 
-extern void light_cli_create_option_ctx(
+extern struct light_cli_option *light_cli_create_option_ctx(
                                 struct light_command *parent,
-                                const uint8_t *short_name,
-                                const uint8_t *long_name,
-                                uint8_t num_args,
+                                const uint8_t code,
+                                const uint8_t *name,
+                                bool arg,
                                 const uint8_t *description);
 
-static inline void light_cli_create_option(
-                                const uint8_t *short_name,
-                                const uint8_t *long_name,
-                                uint8_t num_args,
+static inline struct light_cli_option *light_cli_create_option(
+                                const uint8_t code,
+                                const uint8_t *name,
+                                bool arg,
                                 const uint8_t *description)
 {
-        return light_cli_create_option_ctx(NULL, short_name, long_name, num_args, description);
+        return light_cli_create_option_ctx(NULL, code, name, arg, description);
 }
 extern void light_cli_register_option_ctx(
                                 struct light_command *parent,
-                                struct light_cli_option option);
+                                struct light_cli_option *option);
 
 static inline void light_cli_register_option(
-                                struct light_cli_option option)
+                                struct light_cli_option *option)
 {
         return light_cli_register_option_ctx(NULL, option);
 };
-static inline void light_cli_create_switch_ctx(
+static inline struct light_cli_option *light_cli_create_switch_ctx(
                                 struct light_command *parent,
-                                const uint8_t *short_name,
-                                const uint8_t *long_name,
+                                const uint8_t code,
+                                const uint8_t *name,
                                 const uint8_t *description)
 {
-        light_cli_create_option_ctx(parent, short_name, long_name, 0, description);
+        return light_cli_create_option_ctx(parent, code, name, false, description);
 }
-
+static inline struct light_cli_option *light_cli_create_switch(
+                                const uint8_t code,
+                                const uint8_t *name,
+                                const uint8_t *description)
+{
+        return light_cli_create_switch_ctx(NULL, code, name, description);
+}
 extern struct light_command *light_cli_find_subcommand(
-                                struct light_command *parent, uint8_t *name);
-static inline struct light_command *light_cli_find_command(uint8_t *name)
+                                struct light_command *parent, const uint8_t *name);
+static inline struct light_command *light_cli_find_command(const uint8_t *name)
 {
         return light_cli_find_subcommand(NULL, name);
 }
-bool light_cli_get_switch_value(uint32_t option_id);
-uint8_t *light_cli_get_option_value(uint32_t option_id);
 
 #endif
