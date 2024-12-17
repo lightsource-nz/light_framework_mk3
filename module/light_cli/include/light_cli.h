@@ -193,25 +193,14 @@ extern void light_cli_message_f_faster(const uint8_t *format, ...);
 extern uint8_t light_cli_process_command_line(struct light_command *root, struct light_cli_invocation *invoke, int argc, char *argv[]);
 
 // command and option API
-extern struct light_command *light_cli_create_subcommand(
+extern struct light_command *light_cli_create_command(
                                 struct light_command *parent,
                                 const uint8_t *name,
                                 const uint8_t *description,
-                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *)); // TODO define type for parsed options and args
-static inline struct light_command *light_cli_create_command(
-                                const uint8_t *name,
-                                const uint8_t *description,
-                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *))
-{
-        return light_cli_create_subcommand(NULL, name, description, handler);
-}
-extern void light_cli_register_subcommand(
+                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *));
+extern void light_cli_register_command(
                                 struct light_command *parent,
-                                struct light_command *command); // TODO define type for parsed options and args
-static inline void light_cli_register_command(struct light_command *command)
-{
-        light_cli_register_subcommand(NULL, command);
-}
+                                struct light_command *command);
 
 extern struct light_cli_option *light_cli_create_option_ctx(
                                 struct light_command *parent,
@@ -252,11 +241,7 @@ static inline struct light_cli_option *light_cli_create_switch(
 {
         return light_cli_create_switch_ctx(NULL, code, name, description);
 }
-extern struct light_command *light_cli_find_subcommand(
+extern struct light_command *light_cli_find_command(
                                 struct light_command *parent, const uint8_t *name);
-static inline struct light_command *light_cli_find_command(const uint8_t *name)
-{
-        return light_cli_find_subcommand(NULL, name);
-}
 
 #endif

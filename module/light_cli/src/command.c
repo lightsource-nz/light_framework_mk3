@@ -104,7 +104,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                         if(state == STATE_MATCH) {
                                 struct light_command *next;
                                 // determine if this string matches a subcommand...
-                                if(next = light_cli_find_subcommand(context, token[i].value)) {
+                                if(next = light_cli_find_command(context, token[i].value)) {
                                         context = next;
                                 } else { // ...or if it's time to start binding arguments
                                         invoke->target = context;
@@ -179,15 +179,15 @@ struct light_command *light_cli_create_subcommand(
         command->name = name;
         command->description = description;
         command->handler = handler;
-        light_cli_register_subcommand(parent, command);
+        light_cli_register_command(parent, command);
         return command;
 }
-void light_cli_register_subcommand(
+void light_cli_register_command(
                                 struct light_command *parent,
                                 struct light_command *command)
 {        
         if(!parent)
-                return light_cli_register_subcommand(&root_command, command);
+                return light_cli_register_command(&root_command, command);
         if(parent->child_count >= LIGHT_CLI_MAX_SUBCOMMANDS) {
                 light_warn("failed to register command '%s', parent command exceeded maximum subcommand count", command->name);
                 return;
@@ -209,11 +209,11 @@ void light_cli_register_option_ctx(
         light_trace("added option '%s' to command '%s'", light_cli_option_get_name(option), light_cli_command_get_name(command));
 }
 
-struct light_command *light_cli_find_subcommand(
+struct light_command *light_cli_find_command(
                                 struct light_command *parent, const uint8_t *name)
 {
         if(!parent) {
-                return light_cli_find_subcommand(&root_command, name);
+                return light_cli_find_command(&root_command, name);
         }
         for(uint8_t i = 0; i < parent->child_count && i < LIGHT_CLI_MAX_SUBCOMMANDS; i++) {
                 if(strncmp(light_cli_command_get_name(parent->child[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
