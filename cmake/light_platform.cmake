@@ -49,12 +49,14 @@ macro(light_platform_on_include)
         endif()
 
         light_declare(LIGHT_BOARD)
+        
+        set(LIGHT_BOARD "${LIGHT_BOARD}" CACHE STRING "Name of the target board for the light framework")
         if(LIGHT_PLATFORM STREQUAL "HOST" AND NOT DEFINED LIGHT_BOARD)
                 light_set(LIGHT_BOARD host_os)
         endif()
         if(NOT DEFINED LIGHT_BOARD)
                 light_error("LIGHT_BOARD is not set")
-                message(FATAL_ERROR "LIGHT_BOARD must be set to the name of the "
+                light_fatal("LIGHT_BOARD must be set to the name of the "
                 "target hardware board for all non-host based build configurations "
                 "(i.e. those where LIGHT_PLATFORM is set to TARGET or EMULATOR)")
         else()
@@ -196,11 +198,11 @@ macro(light_hook_set_target_property_fine TARGET HOOK)
         light_declare(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET}__${PROPERTY})
 endmacro()
 macro(light_hook_set_target_property TARGET HOOK)
-        light_append(APPEND LIGHT_TARGET_PROPERTY_HOOKS__${TARGET} ${HOOK})
+        light_append(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET} ${HOOK})
         light_declare(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET})
 endmacro()
 macro(light_hook_set_target_property_global HOOK)
-        light_append(APPEND LIGHT_TARGET_PROPERTY_HOOKS_GLOBAL ${HOOK})
+        light_append(LIGHT_TARGET_PROPERTY_HOOKS_GLOBAL ${HOOK})
 endmacro()
 
 macro(light_target_set_property TARGET PROPERTY VALUE)
