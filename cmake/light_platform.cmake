@@ -51,7 +51,7 @@ macro(light_platform_on_include)
         light_declare(LIGHT_BOARD)
         
         set(LIGHT_BOARD "${LIGHT_BOARD}" CACHE STRING "Name of the target board for the light framework")
-        if(LIGHT_PLATFORM STREQUAL "HOST" AND NOT DEFINED LIGHT_BOARD)
+        if(LIGHT_PLATFORM STREQUAL "HOST" AND NOT LIGHT_BOARD)
                 light_set(LIGHT_BOARD host_os)
         endif()
         if(NOT DEFINED LIGHT_BOARD)
