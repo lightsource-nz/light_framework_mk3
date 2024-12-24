@@ -125,8 +125,7 @@ void light_framework_init()
         light_info("Loading Light Framework runtime...", "");
         light_info("%s", LF_INFO_STR);
 
-        light_object_setup();
-        light_platform_init();
+        light_core_impl_setup();
         framework_loading = 1;
         _find_static_modules();
 

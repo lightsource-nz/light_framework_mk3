@@ -24,7 +24,6 @@ if(LIGHT_SYSTEM STREQUAL PICO_SDK)
         target_link_libraries(
                 light_core
                 INTERFACE
-                pico_platform
-                pico_sync
+                pico_stdlib
         )
 endif()

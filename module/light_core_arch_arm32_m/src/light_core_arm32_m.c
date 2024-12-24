@@ -29,7 +29,7 @@ static void _registry_critical_exit(struct light_object_registry *reg)
 {
 }
 
-void light_object_setup()
+void light_core_impl_setup()
 {
         if(!_registry_loaded) {
                 _registry_default.alloc = light_alloc;

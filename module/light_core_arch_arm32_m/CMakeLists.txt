@@ -18,5 +18,5 @@ target_sources(
 target_link_libraries(
         light_core_arch_arm32_m
         INTERFACE
-        ${LIGHT_CORE_LINK_DIR}/objects.arm32_m.ld
+        ${CMAKE_CURRENT_LIST_DIR}/objects.arm32_m.ld
 )

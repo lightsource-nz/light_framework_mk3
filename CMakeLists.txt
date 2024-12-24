@@ -8,7 +8,6 @@ include(light_platform)
 
 project(light_framework_mk3 C CXX ASM)
 
-
 # modules
 add_subdirectory(module/light_core)
 add_subdirectory(module/light_core_arch_arm32_m)
@@ -16,15 +15,15 @@ add_subdirectory(module/light_core_arch_host_os)
 add_subdirectory(module/light_core_chip_rp2040)
 add_subdirectory(module/light_cli)
 
+if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
+        light_load_pico_sdk_support()
+endif()
+
 light_info("loading platform support database...")
 add_subdirectory(platform/arch)
 add_subdirectory(platform/chip)
 add_subdirectory(platform/board)
 
-# TODO check if this call is as redundant as it looks
-if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
-        light_load_pico_sdk_support()
-endif()
 
 # tests
 add_subdirectory(test/demo_cli)

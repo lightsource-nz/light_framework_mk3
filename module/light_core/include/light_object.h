@@ -1,6 +1,8 @@
 #ifndef _LIGHT_OBJECT_H
 #define _LIGHT_OBJECT_H
 
+#include <stdarg.h>
+
 #define LIGHT_OBJ_NAME_LENGTH 32
 
 struct light_object {
@@ -40,7 +42,7 @@ struct light_static {
 #define Light_Object_Static_RO(_id, _parent, _type) Light_Object_Full(_id, _parent, _type, 1, 1)
 
 // initialize default object registry, must be called before any light_object API functions
-extern void light_object_setup();
+void light_core_impl_setup();
 extern struct light_object_registry *light_object_registry_default();
 
 // TODO implement saturation conditions and warnings

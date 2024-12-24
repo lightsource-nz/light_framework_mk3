@@ -19,7 +19,7 @@ target_sources(
 target_link_libraries(
         light_core_arch_host_os
         INTERFACE
+        ${CMAKE_CURRENT_LIST_DIR}/objects.host_os.ld
         rt
         light_core
-        ${LIGHT_CORE_LINK_DIR}/objects.host_os.ld
 )

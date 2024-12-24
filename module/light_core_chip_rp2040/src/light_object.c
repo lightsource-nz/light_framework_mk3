@@ -6,13 +6,11 @@
  *  created june 2024
  * 
  */
+#include <light_core_port.h>
+#include <light_common.h>
+#include <light_object.h>
 
-#include <light.h>
-
-#if(LIGHT_SYSTEM == SYSTEM_PICO_SDK && LIGHT_PLATFORM == PLATFORM_TARGET)
-#       define USE_PICO_SPINLOCKS
-#       include <pico/critical_section.h>
-#endif
+#include <pico/critical_section.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -22,26 +20,20 @@ static struct light_object_registry _registry_default;
 
 static void _registry_critical_enter(struct light_object_registry *reg)
 {
-#ifdef USE_PICO_SPINLOCKS
-        critical_section_enter_blocking(&reg->mutex);
-#endif
+        critical_section_enter_blocking(reg->mutex);
 }
 static void _registry_critical_exit(struct light_object_registry *reg)
 {
-#ifdef USE_PICO_SPINLOCKS
-        critical_section_exit(&reg->mutex);
-#endif
+        critical_section_exit(reg->mutex);
 }
 
 void light_core_impl_setup()
 {
         if(!_registry_loaded) {
-#ifdef USE_PICO_SPINLOCKS
-                critical_section_init(&_registry_default.mutex);
-#endif
+                _registry_loaded = true;
+                critical_section_init(_registry_default.mutex);
                 _registry_default.alloc = light_alloc;
                 _registry_default.free = light_free;
-                _registry_loaded = true;
         }
 }
 static struct light_object_registry *_get_default_registry()
@@ -92,7 +84,7 @@ static uint8_t light_object_set_name_va(struct light_object *obj, const uint8_t 
                 // TODO log empty name field error
                 return LIGHT_INVALID;
         }
-        vsnprintf(obj->id, LOM_OBJ_NAME_LENGTH, format, vargs);
+        vsnprintf(obj->id, LIGHT_OBJ_NAME_LENGTH, format, vargs);
         return LIGHT_OK;
 }
 static int light_object_add_internal(struct light_object_registry *reg, struct light_object *obj)
@@ -149,54 +141,28 @@ int light_object_del_reg(struct light_object_registry *reg, struct light_object 
 
 void light_object_init_reg(struct light_object_registry *reg, struct light_object *obj, const struct lobj_type *type)
 {
-#ifdef USE_PICO_SPINLOCKS
         obj->ref_count = 1;
-#else
-        atomic_store(&obj->ref_count, 1);
-#endif
-    obj->type = type;
+        obj->type = type;
 }
 // TODO implement saturation conditions and warnings
 struct light_object *light_object_get_reg(struct light_object_registry *reg, struct light_object *obj)
 {
         struct light_object *ref = obj;
         if(obj) {
-#ifdef USE_PICO_SPINLOCKS
-                critical_section_enter_blocking(&reg->mutex);
+                critical_section_enter_blocking(reg->mutex);
                 if(obj->ref_count > 0)
                         obj->ref_count++;
                 else
                          ref = NULL;
-                critical_section_exit(&reg->mutex);
-#else
-                uint32_t old = obj->ref_count;
-                do {
-                        if(old == 0 ) {
-                                ref = NULL;
-                                break;
-                        }
-                } while (!atomic_compare_exchange_strong(&obj->ref_count, &old, obj->ref_count + 1));
-                
-#endif
+                critical_section_exit(reg->mutex);
         }
         return ref;
 }
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-#ifdef USE_PICO_SPINLOCKS
-        critical_section_enter_blocking(&_registry_default.mutex);
+        critical_section_enter_blocking(reg->mutex);
         obj->ref_count--;
-        critical_section_exit(&_registry_default.mutex);
-#else
-        uint8_t status;
-        uint32_t count = obj->ref_count;
-        do {
-                if(count > 0)
-                        status = atomic_compare_exchange_strong(&obj->ref_count, &count, count - 1);
-                else
-                        return;
-        } while (status);
-#endif
+        critical_section_exit(reg->mutex);
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,

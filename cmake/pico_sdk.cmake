@@ -31,9 +31,9 @@ function(light_load_pico_sdk_support)
         
         light_set(PICO_SDK_PATH "${PICO_SDK_PATH}")
         set(PICO_SDK_PATH "${PICO_SDK_PATH}" CACHE PATH "Path to the Raspberry Pi Pico SDK" FORCE)
-
-        include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
         
         light_hook_set_target_property_global(light_pico_sdk_target_property_hook)
 
+        include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+        pico_sdk_init()
 endfunction()

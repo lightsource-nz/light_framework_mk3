@@ -1,6 +1,8 @@
 #include <light_platform.h>
-
-#if(LIGHT_SYSTEM != PICO_SDK)
+#include <light_core_port.h>
+#include <light_common.h>
+#include <light_object.h>
+#if(LIGHT_SYSTEM != SYSTEM_PICO_SDK)
         #error "this file should only be compiled when Pico SDK support is enabled"
 #endif
 
@@ -15,6 +17,10 @@
 static struct lp_timer *timer_instance[LIGHT_PLATFORM_MAX_TIMERS];
 static uint8_t timer_instance_count = 0;
 
+void light_platform_init()
+{
+        
+}
 static uint8_t _get_free_timer_instance()
 {
         for(uint8_t i = 0; i < LIGHT_PLATFORM_MAX_TIMERS; i++) {
@@ -67,14 +73,14 @@ uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
                 case TIMER_IDLE:
                 return timer->duration_ms;
                 case TIMER_RUN:;
-                uint32_t now = light_platform_get_system_time_ms();
+                uint32_t now = light_platform_get_time_since_init();
                 if(timer->target_ms < now) {
                         return timer->target_ms - now;
                 }
                 return 0;
         }
 }
-uint32_t light_platform_get_system_time_ms()
+uint32_t light_platform_get_time_since_init()
 {
         return to_ms_since_boot(get_absolute_time());
 }

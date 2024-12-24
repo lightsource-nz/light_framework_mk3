@@ -1,6 +1,9 @@
 #ifndef _LIGHT_PLATFORM_H
 #define _LIGHT_PLATFORM_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 struct lp_timer {
         uint8_t id;
         uint8_t state;
