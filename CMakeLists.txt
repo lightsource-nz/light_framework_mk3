@@ -22,7 +22,7 @@ target_sources(
 target_link_libraries(
         light_display_ioport INTERFACE
         light_display
-        light_framework
+        light_core
 )
 
 if(LIGHT_SYSTEM STREQUAL PICO_SDK AND LIGHT_PLATFORM STREQUAL TARGET)

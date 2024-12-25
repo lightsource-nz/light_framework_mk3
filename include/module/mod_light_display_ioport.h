@@ -8,6 +8,6 @@
 
 #define LIGHT_DISPLAY_IOPORT_INFO_STR              "light_display_ioport v" LIGHT_DISPLAY_IOPORT_VERSION_STR
 
-Light_Module_Declare(light_display_ioport)
+Light_Module_Declare(light_display_ioport);
 
 #endif
