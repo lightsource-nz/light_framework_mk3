@@ -122,6 +122,7 @@ void _lf_app_event(const struct light_module *module, uint8_t event, void *arg)
 void light_framework_init()
 {
         light_common_init();
+        light_platform_init();
         light_info("Loading Light Framework runtime...", "");
         light_info("%s", LF_INFO_STR);
 

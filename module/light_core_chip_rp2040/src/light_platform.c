@@ -19,7 +19,7 @@ static uint8_t timer_instance_count = 0;
 
 void light_platform_init()
 {
-        
+        alarm_pool_init_default();
 }
 static uint8_t _get_free_timer_instance()
 {
@@ -83,4 +83,9 @@ uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
 uint32_t light_platform_get_time_since_init()
 {
         return to_ms_since_boot(get_absolute_time());
+}
+
+void light_platform_sleep_ms(uint32_t period)
+{
+        sleep_ms(period);
 }
