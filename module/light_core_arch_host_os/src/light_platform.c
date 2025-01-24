@@ -147,13 +147,17 @@ uint32_t light_platform_get_time_since_init()
 {
         return light_platform_get_absolute_time_ms() - system_time_at_init;
 }
-static uint8_t *_do_getenv(uint8_t *name)
+static uint8_t *_do_getenv(const uint8_t *name)
 {
 #ifdef __GNUC__
         return secure_getenv(name);
 #else
         return getenv(name);
 #endif
+}
+uint8_t *light_platform_getenv(const uint8_t *name)
+{
+        return _do_getenv(name);
 }
 uint8_t *light_platform_get_user_home()
 {
