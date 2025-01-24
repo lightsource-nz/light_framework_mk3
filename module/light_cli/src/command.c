@@ -235,7 +235,6 @@ struct light_cli_option *light_cli_find_command_option(
                 }
         }
         return NULL;
-
 }
 
 const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
@@ -245,9 +244,4 @@ const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation
                         return invoke->option[i].value;
                 }
         }
-}
-// TODO make switches work
-bool light_cli_invocation_get_switch_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
-{
-        return true;
 }
