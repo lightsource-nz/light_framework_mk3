@@ -8,6 +8,9 @@
  *  authored by Alex Fulton
  *  created november 2024
  */
+#ifdef __GNUC__
+#define _GNU_SOURCE
+#endif
 #define _XOPEN_SOURCE 700
 #include <light.h>
 
@@ -143,4 +146,24 @@ uint32_t light_platform_get_absolute_time_ms()
 uint32_t light_platform_get_time_since_init()
 {
         return light_platform_get_absolute_time_ms() - system_time_at_init;
+}
+static uint8_t *_do_getenv(uint8_t *name)
+{
+#ifdef __GNUC__
+        return secure_getenv(name);
+#else
+        return getenv(name);
+#endif
+}
+uint8_t *light_platform_get_user_home()
+{
+        return _do_getenv("HOME");
+}
+uint8_t *light_platform_get_user_name()
+{
+        return _do_getenv("USER");
+}
+uint16_t light_platform_get_user_id()
+{
+        return getuid();
 }

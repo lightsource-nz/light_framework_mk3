@@ -27,4 +27,8 @@ extern uint32_t light_platform_get_absolute_time_ms();
 extern uint32_t light_platform_get_time_since_init();
 extern void light_platform_sleep_ms(uint32_t period);
 
+extern uint8_t *light_platform_get_user_home();
+extern uint8_t *light_platform_get_user_name();
+extern uint16_t light_platform_get_user_id();
+
 #endif
