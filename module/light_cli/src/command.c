@@ -136,7 +136,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                         if(eq_idx) {
                                 char optname[LIGHT_CLI_OPTION_VALUE_MAX];
                                 strncpy(optname, token[i].value, (eq_idx - token[i].value));
-                                struct light_cli_option *option = light_cli_find_option_ctx(context, optname);
+                                struct light_cli_option *option = light_cli_find_command_option(context, optname);
 
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
@@ -146,7 +146,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                 optval->option = option;
                                 strncpy(optval->value, ++eq_idx, LIGHT_CLI_OPTION_VALUE_MAX);
                         } else {
-                                struct light_cli_option *option = light_cli_find_option_ctx(context, token[i].value);
+                                struct light_cli_option *option = light_cli_find_command_option(context, token[i].value);
 
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
@@ -223,11 +223,11 @@ struct light_command *light_cli_find_command(
         return NULL;
 }
 
-struct light_cli_option *light_cli_find_option_ctx(
+struct light_cli_option *light_cli_find_command_option(
                                 struct light_command *command, const uint8_t *name)
 {
         if(!command) {
-                return light_cli_find_option_ctx(&root_command, name);
+                return light_cli_find_command_option(&root_command, name);
         }
         for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
                 if(strncmp(light_cli_option_get_name(command->option[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
@@ -236,4 +236,18 @@ struct light_cli_option *light_cli_find_option_ctx(
         }
         return NULL;
 
+}
+
+const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
+{
+        for(uint8_t i = 0; i < invoke->option_count; i++) {
+                if(invoke->option[i].option == light_cli_find_command_option(invoke->target, option_name)) {
+                        return invoke->option[i].value;
+                }
+        }
+}
+// TODO make switches work
+bool light_cli_invocation_get_switch_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
+{
+        return true;
 }

@@ -167,12 +167,15 @@ static inline const uint8_t *light_cli_option_get_description(struct light_cli_o
         return option->description;
 }
 
-extern struct light_cli_option *light_cli_find_option_ctx(
+extern struct light_cli_option *light_cli_find_command_option(
                                 struct light_command *command, const uint8_t *name);
 static inline struct light_cli_option *light_cli_find_option(const uint8_t *name)
 {
-        return light_cli_find_option_ctx(NULL, name);
+        return light_cli_find_command_option(NULL, name);
 }
+
+extern const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name);
+extern bool light_cli_invocation_get_switch_value(struct light_cli_invocation *invoke, const uint8_t *option_name);
 
 extern void light_cli_mqueue_init(struct light_cli_mqueue *queue);
 extern void light_cli_mqueue_add(struct light_cli_mqueue *queue, uint8_t flags, uint8_t *text, uint8_t argc, void *argv);
