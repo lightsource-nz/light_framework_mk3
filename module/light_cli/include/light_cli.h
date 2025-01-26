@@ -53,10 +53,12 @@ extern struct lobj_type ltype_cli_message_queue;
 #define LIGHT_CLI_OPTION_RAWVALUE_MAX           32
 #define LIGHT_CLI_OPTION_VALUE_MAX              32
 
+#define LIGHT_CLI_OPTION                        0
+#define LIGHT_CLI_SWITCH                        1
 struct light_cli_option {
-        const uint8_t code;
+        uint8_t type;
+        const char code;
         const uint8_t *name;
-        uint8_t args_count;
         const uint8_t *description;
 };
 struct light_cli_invocation;
@@ -108,11 +110,15 @@ extern struct lobj_type ltype_cli_command;
                 .option = { __VA_ARGS__ } \
         }
 
-#define Light_Command_Option(command, code, name, args_count, description) \
-        { code, name, (args_count), description }
+// FIXME the arg ordering on these macros is fucking wack
+#define Light_Command_Option_Type(name, type, code, description) \
+        { type, code, name, description }
 
 #define Light_Command_Switch(code, name, description) \
-        Light_Command_Option(code, name, 0, description)
+        Light_Command_Option_Type(name, LIGHT_CLI_SWITCH, code, description)
+
+#define Light_Command_Option(code, name, description) \
+        Light_Command_Option_Type(name, LIGHT_CLI_OPTION, code, description)
 
 #define Light_Command_Declare(sym_name, parent) \
         extern struct light_command sym_name
@@ -124,13 +130,17 @@ extern void light_cli__autoload_command(void *object);
                 Light_Command_Static(name, parent, description, handler, _arg_min, _arg_max, __VA_ARGS__); \
         static const __static_object struct light_command *autoload_## sym_name = &sym_name;
 
-#define Light_Command_Option_Declare(command, sym_name) \
+#define Light_Command_Option_Declare(sym_name, command) \
         extern const struct light_cli_option *sym_name
 
-#define Light_Command_Option_Define(command, sym_name, code, args_count, description, handler) \
+#define Light_Command_Option_Type_Define(sym_name, command, type, name, code, description) \
         static const struct light_cli_option __static_descriptor _## sym_name = \
-                        Light_Command_Option(name, parent, description, handler); \
+                        Light_Command_Option_Type(name, type, code, description); \
         const struct light_cli_option __static_object *sym_name = &_## sym_name
+#define Light_Command_Option_Define(sym_name, command, name, code, description) \
+                Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_OPTION, name, code, description)
+#define Light_Command_Switch_Define(sym_name, command, name, code, description) \
+                Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_SWITCH, name, code, description)
 
 Light_CLI_MQueue_Declare(light_cli_mqueue_default);
 
@@ -158,9 +168,9 @@ static inline const uint8_t *light_cli_option_get_name(struct light_cli_option *
 {
         return option->name;
 }
-static inline uint8_t light_cli_option_get_args_count(struct light_cli_option *option)
+static inline uint8_t light_cli_option_get_type(struct light_cli_option *option)
 {
-        return option->args_count;
+        return option->type;
 }
 static inline const uint8_t *light_cli_option_get_description(struct light_cli_option *option)
 {
