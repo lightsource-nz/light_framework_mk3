@@ -95,6 +95,13 @@ struct light_cli_invocation_result {
                 struct light_command *command;
         } value;
 };
+#define Result_Success (struct light_cli_invocation_result) {.code = LIGHT_CLI_RESULT_SUCCESS}
+#define Result_Error (struct light_cli_invocation_result) {.code = LIGHT_CLI_RESULT_ERROR}
+#define Result_Alias(target) \
+        (struct light_cli_invocation_result) { \
+        .code = LIGHT_CLI_RESULT_ALIAS, \
+        .value.command = target \
+        }
 
 extern struct lobj_type ltype_cli_command;
 // static command max-args value is determined at load time by the size of .arg_name
