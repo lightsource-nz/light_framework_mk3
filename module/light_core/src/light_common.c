@@ -26,17 +26,16 @@ void light_free(void *obj)
 {
         free(obj);
 }
+#define def_case(err_code) case err_code:; return #err_code
 const uint8_t *light_error_to_string(uint8_t level)
 {
         switch (level) {
-        case LIGHT_OK:
-                return "LIGHT_OK";
-        case LIGHT_INVALID:
-                return "LIGHT_INVALID";
-        case LIGHT_NO_MEMORY:
-                return "LIGHT_NO_MEMORY";
-        case LIGHT_NO_RESOURCE:
-                return "LIGHT_NO_RESOURCE";
+                def_case(LIGHT_OK);
+                def_case(LIGHT_INVALID);
+                def_case(LIGHT_NO_MEMORY);
+                def_case(LIGHT_NO_RESOURCE);
+                def_case(LIGHT_STATE_INVALID);
+                def_case(LIGHT_EXTERNAL);
         default:
                 return "UNDEFINED";
         }

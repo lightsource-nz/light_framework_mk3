@@ -203,11 +203,12 @@ do { \
 # define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 #endif
 
-#define LIGHT_OK                        (uint8_t) 0x0u
-#define LIGHT_INVALID                   (uint8_t) 0x1u
-#define LIGHT_NO_MEMORY                 (uint8_t) 0x2u
-#define LIGHT_NO_RESOURCE               (uint8_t) 0x3u
-#define LIGHT_STATE_INVALID             (uint8_t) 0x4u
+#define LIGHT_OK                        (uint8_t) 0x0u          // indicates successful result
+#define LIGHT_INVALID                   (uint8_t) 0x1u          // invalid argument or input
+#define LIGHT_NO_MEMORY                 (uint8_t) 0x2u          // insufficient memory for operation
+#define LIGHT_NO_RESOURCE               (uint8_t) 0x3u          // insufficient system resource for operation
+#define LIGHT_STATE_INVALID             (uint8_t) 0x4u          // invalid internal state for operation
+#define LIGHT_EXTERNAL                  (uint8_t) 0x5u          // error in external library or hardware
 
 #define LIGHT_OPT_LOG_LEVEL             "LIGHT_LOG_LEVEL"
 #define LIGHT_OPT_RUN_MODE              "LIGHT_RUN_MODE"
