@@ -3,7 +3,7 @@
 
 extern void light_cli_message_init();
 
-struct light_command root_command;
-struct light_cli_invocation static_invoke;
+extern struct light_command root_command;
+extern struct light_cli_invocation static_invoke;
 
 #endif

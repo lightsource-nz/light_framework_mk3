@@ -121,7 +121,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                         to_bind--;
                                 } else {
                                         light_error("too many arguments to command '%s' (max: %d)", invoke->target, invoke->target->arg_max);
-                                        return PROCESS_FAIL;
+                                        return LIGHT_INVALID;
                                 }
                         }
                         break;
@@ -141,7 +141,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
                                                         optname, light_cli_command_get_name(context));
-                                        return PROCESS_FAIL;
+                                        return LIGHT_INVALID;
                                 }
                                 optval->option = option;
                                 strncpy(optval->value, ++eq_idx, LIGHT_CLI_OPTION_VALUE_MAX);
@@ -151,7 +151,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
                                                 token[i].value, light_cli_command_get_name(context));
-                                        return PROCESS_FAIL;
+                                        return LIGHT_INVALID;
                                 }
                                 optval->option = option;
                                 // set this option as the bind context, so its argument is bound
@@ -162,7 +162,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         }
         uint8_t ref_depth = 0;
         light_debug("finished parsing command line, target command: '%s'", invoke->target);
-        struct light_cli_command *last_command = invoke->target;
+        struct light_command *last_command = invoke->target;
         struct light_cli_invocation_result result = invoke->target->handler(invoke);
         while(result.code != LIGHT_CLI_RESULT_SUCCESS) {
                 switch (result.code)
