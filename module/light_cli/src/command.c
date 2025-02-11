@@ -23,8 +23,8 @@ struct lobj_type ltype_cli_command = {
 
 //   we use this structure as a placeholder to store actual root-level commands,
 // but it has no name and cannot be invoked
-static struct light_command root_command;
-static struct light_cli_invocation static_invoke;
+struct light_command root_command;
+struct light_cli_invocation static_invoke;
 
 static void command_release(struct light_object *cmd)
 {
@@ -57,8 +57,6 @@ struct cli_token {
 //   although a failure to parse the incoming command line is probably a fatal condition
 // for most applications, the parsing routine simply logs the error and returns a nonzero
 // value to signal that it could not complete the parse.
-#define PROCESS_OK              0
-#define PROCESS_FAIL            1
 uint8_t light_cli_process_command_line(struct light_command *root, struct light_cli_invocation *invoke, int argc, char *argv[])
 {
         // command line parsing algorithm

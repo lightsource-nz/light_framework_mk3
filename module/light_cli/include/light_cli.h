@@ -219,6 +219,7 @@ extern void light_cli_message_f_fast(const uint8_t *format, ...);
 extern void light_cli_message_f_faster(const uint8_t *format, ...);
 // called at application load-time by framework
 extern uint8_t light_cli_process_command_line(struct light_command *root, struct light_cli_invocation *invoke, int argc, char *argv[]);
+extern uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke);
 
 // command and option API
 extern struct light_command *light_cli_create_command(

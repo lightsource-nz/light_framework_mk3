@@ -10,8 +10,11 @@
 #include <module/mod_light_cli.h>
 #include <light_cli.h>
 
+#include "cli_private.h"
+
 static void light_command_event(const struct light_module *mod, uint8_t event_id, void *arg);
-static void light_command_process_command_line(int argc, char *argv[]);
+static void handle_command_line(int argc, char *argv[]);
+static uint8_t cli_task(struct light_application *app);
 
 Light_Module_Define(light_cli, light_command_event, &light_core);
 
@@ -20,11 +23,12 @@ static void light_command_event(const struct light_module *mod, uint8_t event_id
         switch (event_id)
         {
         case LF_EVENT_MODULE_LOAD:
+                light_module_register_periodic_task(mod, "light_cli_task", cli_task);
                 light_cli_init();
                 break;
         case LF_EVENT_APP_LAUNCH:
                 struct light_event_app_launch *event = (struct light_event_app_launch *)arg;
-                light_command_process_command_line(event->argc, event->argv);
+                handle_command_line(event->argc, event->argv);
                 break;
         
         default:
@@ -32,18 +36,15 @@ static void light_command_event(const struct light_module *mod, uint8_t event_id
         }
         
 }
-static void light_command_process_command_line(int argc, char *argv[])
+static void handle_command_line(int argc, char *argv[])
 {
-        // command line parsing algorithm
-
-        //   first pass classifies all tokens as either option flags or bare strings
-        // (where bare strings may be either the name of a command, or an argument
-        // [to either an option or command]).
-        //   second pass, which relies on the prior construction of a table of all
-        //   options and commands and the arguments they take, performs the task of
-        //   identifying commands and options by name, and binding argument values to
-        //   the commands and options which expect them.
-        for(int i = 0; i < argc; i++) {
-
+        struct light_cli_invocation invoke;
+        if(light_cli_process_command_line(&root_command, &static_invoke, argc, argv)) {
+                light_fatal("something went wrong while trying to process the incoming command line");
         }
+}
+static uint8_t cli_task(struct light_application *app)
+{
+        light_debug("calling command handler for for command '%s'", light_cli_command_get_name(static_invoke.target));
+        static_invoke.target->handler(&static_invoke);
 }
