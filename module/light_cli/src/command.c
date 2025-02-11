@@ -6,6 +6,7 @@
  *  created november 2024
  * 
  */
+#include <light.h>
 #include <light_cli.h>
 #include <stdio.h>
 #include <string.h>
@@ -106,6 +107,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                 // determine if this string matches a subcommand...
                                 if(next = light_cli_find_command(context, token[i].value)) {
                                         context = next;
+                                        invoke->target = context;
                                 } else { // ...or if it's time to start binding arguments
                                         invoke->target = context;
                                         to_bind = context->arg_max;
@@ -160,7 +162,29 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                         break;
                 }
         }
-
+        uint8_t ref_depth = 0;
+        light_debug("finished parsing command line, target command: '%s'", invoke->target);
+        struct light_cli_command *last_command = invoke->target;
+        struct light_cli_invocation_result result = invoke->target->handler(invoke);
+        while(result.code != LIGHT_CLI_RESULT_SUCCESS) {
+                switch (result.code)
+                {
+                case LIGHT_CLI_RESULT_ALIAS:
+                        light_debug("command '%s' aliased to target command '%s'",
+                                light_cli_command_get_name(invoke->target),
+                                light_cli_command_get_name(result.value.command));
+                                last_command = result.value.command;
+                                result = result.value.command->handler(invoke);
+                        break;
+                
+                case LIGHT_CLI_RESULT_ERROR:
+                        light_error("handler for command '%s' returned ERROR status",
+                                light_cli_command_get_name(last_command));
+                        return LIGHT_EXTERNAL;
+                }
+        }
+        light_debug("command handler for '%s' completed successfully");
+        return LIGHT_OK;
 }
 struct light_command *light_cli_create_subcommand(
                                 struct light_command *parent,

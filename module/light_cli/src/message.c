@@ -6,7 +6,7 @@
  *  created november 2024
  * 
  */
-
+#include <light.h>
 #include <light_cli.h>
 #include <stdio.h>
 

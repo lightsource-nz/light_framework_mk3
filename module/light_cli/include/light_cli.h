@@ -1,14 +1,15 @@
 #ifndef _LIGHT_CLI_H
 #define _LIGHT_CLI_H
 
-#include <light.h>
-
 // only the 'fast' and 'faster' message types are handled by this facility
 #define LIGHT_CLI_MSG_FAST                    0
 #define LIGHT_CLI_MSG_FASTER                  1
 
 // TODO the mqueue interface can probably be excluded from the public API
 #define LIGHT_CLI_MQUEUE_DEPTH             32
+
+// 
+#define LIGHT_CLI_MAX_REF_DEPTH                 8
 
 struct light_cli_message {
         uint8_t flags;
@@ -99,8 +100,8 @@ struct light_cli_invocation_result {
 #define Result_Error (struct light_cli_invocation_result) {.code = LIGHT_CLI_RESULT_ERROR}
 #define Result_Alias(target) \
         (struct light_cli_invocation_result) { \
-        .code = LIGHT_CLI_RESULT_ALIAS, \
-        .value.command = target \
+                .code = LIGHT_CLI_RESULT_ALIAS, \
+                .value.command = target \
         }
 
 extern struct lobj_type ltype_cli_command;
