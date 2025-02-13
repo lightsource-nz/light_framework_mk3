@@ -122,6 +122,9 @@ extern void light_module_register_periodic_task(const struct light_module *modul
                                                 uint8_t (*task)(struct light_application *));
 extern void light_module_unregister_periodic_task(const struct light_module *module,
                                                 uint8_t (*task)(struct light_application *));
+extern void light_module_register_one_shot_task(const struct light_module *module,
+                                                const uint8_t *name,
+                                                uint8_t (*task)(struct light_application *));
 static inline const char *light_application_get_name(struct light_application *app)
 {
         return app->header.id;

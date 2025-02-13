@@ -24,14 +24,16 @@ extern int __light_statics_start, __light_statics_end;
 static struct light_static_object *static_objects;
 static uintptr_t static_object_count;
 
-struct light_periodic {
+struct light_task {
         const struct light_module *owner;
         const uint8_t *name;
         uint8_t (*run)(struct light_application *);
 };
 
-static uint8_t app_task_count = 0;
-static struct light_periodic app_tasks[LF_TASKS_MAX];
+static uint8_t app_periodic_task_count = 0;
+static struct light_task app_periodic_tasks[LF_TASKS_MAX];
+static uint8_t app_one_shot_task_count = 0;
+static struct light_task app_one_shot_tasks[LF_TASKS_MAX];
 
 // TODO need to properly init reference counts in object headers of static modules
 static void _find_static_modules()
@@ -148,6 +150,9 @@ void light_framework_init()
         light_info("Loading Light Framework runtime...");
         light_info("%s", LF_INFO_STR);
 
+        app_one_shot_task_count = 0;
+        app_periodic_task_count = 0;
+
         light_core_impl_setup();
         framework_loading = 1;
         _find_static_modules();
@@ -159,7 +164,7 @@ void light_framework_init()
         framework_loaded = 1;
 }
  
-// begin execution of all loaded applications and periodic tasks
+// begin execution of all loaded applications and tasks
 void light_framework_run(int argc, char *argv[])
 {
         // first we send all modules the APP_LAUNCH event...
@@ -171,10 +176,27 @@ void light_framework_run(int argc, char *argv[])
         // ...then we begin scheduling application tasks
         struct light_application *app = light_framework_get_root_application();
         uint8_t status = LF_STATUS_RUN;
-        struct light_periodic *task;
-         while(status == LF_STATUS_RUN) {
-                for(uint8_t i = 0; i < app_task_count && status == LF_STATUS_RUN; i++) {
-                        task = &app_tasks[i];
+        struct light_task *task;
+        light_debug("scheduling application tasks...");
+        light_debug("one-shot tasks: %d", app_one_shot_task_count);
+        for(uint8_t i = 0; i < app_one_shot_task_count; i++) {
+                task = &app_one_shot_tasks[i];
+                light_debug("%s: (%s)", task->name, light_module_get_name(task->owner));
+        }
+        for(uint8_t i = 0; i < app_one_shot_task_count; i++) {
+                task = &app_one_shot_tasks[i];
+                if(task->run(app) == LF_STATUS_ERROR) {
+                        light_error("task '%s' returned error status", task->name);
+                }
+        }
+        light_debug("scheduling periodic tasks...");
+        for(uint8_t i = 0; i < app_periodic_task_count; i++) {
+                task = &app_periodic_tasks[i];
+                light_debug("%s: (%s)", task->name, light_module_get_name(task->owner));
+        }
+        while(status == LF_STATUS_RUN) {
+                for(uint8_t i = 0; i < app_periodic_task_count && status == LF_STATUS_RUN; i++) {
+                        task = &app_periodic_tasks[i];
                         status = task->run(app);
                 }
         }
@@ -216,16 +238,26 @@ void light_module_register_periodic_task(const struct light_module *module,
                                                 const uint8_t *name,
                                                 uint8_t (*task)(struct light_application *))
 {
-        if(!(app_task_count < LF_TASKS_MAX)) {
+        if(!(app_periodic_task_count < LF_TASKS_MAX)) {
                 light_warn("Failed to register periodic task for module '%s', module may not work correctly", light_module_get_name(module));
                 return;
         }
-        app_tasks[app_task_count++] = (struct light_periodic) { module, name, task };
+        app_periodic_tasks[app_periodic_task_count++] = (struct light_task) { module, name, task };
 }
 void light_module_unregister_periodic_task(const struct light_module *module,
                                                 uint8_t (*task)(struct light_application *))
 {
-        //light_arraylist_delete_item(&app_tasks, &app_task_count, task);
+        //light_arraylist_delete_item(&app_periodic_tasks, &app_periodic_task_count, task);
+}
+void light_module_register_one_shot_task(const struct light_module *module,
+                                                const uint8_t *name,
+                                                uint8_t (*task)(struct light_application *))
+{
+        if(!(app_one_shot_task_count < LF_TASKS_MAX)) {
+                light_error("failed to register task '%s' for module '%s', max tasks exceeded", name, light_module_get_name(module));
+                return;
+        }
+        app_one_shot_tasks[app_one_shot_task_count++] = (struct light_task) { module, name, task };
 }
 struct light_application *light_framework_get_root_application()
 {

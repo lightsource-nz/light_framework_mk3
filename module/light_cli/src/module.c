@@ -22,7 +22,7 @@ static void light_command_event(const struct light_module *mod, uint8_t event_id
         switch (event_id)
         {
         case LF_EVENT_MODULE_LOAD:
-                light_module_register_periodic_task(mod, "light_cli_task", cli_task);
+                light_module_register_one_shot_task(mod, "light_cli_task", cli_task);
                 light_cli_init();
                 break;
         case LF_EVENT_APP_LAUNCH:

@@ -214,7 +214,7 @@ uint8_t cli_task(struct light_application *app)
         }
         light_debug("command handler for '%s' completed successfully",
                 light_cli_command_get_name(last_command));
-        return LF_STATUS_SHUTDOWN;
+        return LF_STATUS_RUN;
 }
 struct light_command *light_cli_create_subcommand(
                                 struct light_command *parent,
