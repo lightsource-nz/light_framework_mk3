@@ -19,6 +19,11 @@ static uintptr_t static_module_count;
 static uint8_t available_module_count;
 static const struct light_module *available_modules[LF_STATIC_MODULES_MAX];
 
+extern int __light_statics_start, __light_statics_end;
+
+static struct light_static_object *static_objects;
+static uintptr_t static_object_count;
+
 struct light_periodic {
         const struct light_module *owner;
         const uint8_t *name;
@@ -36,6 +41,23 @@ static void _find_static_modules()
         static_modules = (struct light_module **) &__light_modules_start;
         static_module_count = (((uintptr_t)&__light_modules_end) - ((uintptr_t)&__light_modules_start)) / sizeof(void *);
         light_debug("located %d static modules", static_module_count);
+}
+static void _find_static_objects()
+{
+        light_trace("&__light_statics_start=0x%x, &__light_statics_end=0x%x, sizeof(struct light_static_object)=0x%x", &__light_statics_start, &__light_statics_end, sizeof(struct light_static_object));
+        light_trace("((_start - _end = 0x%x) / 0x%x)=0x%x",((uintptr_t)&__light_statics_end) - (uintptr_t)&__light_statics_start, sizeof(void *), (((uintptr_t)&__light_statics_end) - ((uintptr_t)&__light_statics_start)) / sizeof(struct light_static_object));
+        static_objects = (struct light_static_object *) &__light_statics_start;
+        static_object_count = (((uintptr_t)&__light_statics_end) - ((uintptr_t)&__light_statics_start)) / sizeof(struct light_static_object);
+        light_debug("located %d static objects", static_object_count);
+}
+static void _load_static_objects()
+{
+        for(uint16_t i = 0; i < static_object_count; i++) {
+                //struct light_static_object *object = &static_objects[i];
+                //object->load(object->target);
+                static_objects[i].load(static_objects[i].target);
+        }
+        light_debug("loaded %d static objects", static_object_count);
 }
 static void _module_release(struct light_object *obj)
 {
@@ -123,7 +145,7 @@ void light_framework_init()
 {
         light_common_init();
         light_platform_init();
-        light_info("Loading Light Framework runtime...", "");
+        light_info("Loading Light Framework runtime...");
         light_info("%s", LF_INFO_STR);
 
         light_core_impl_setup();
@@ -132,6 +154,8 @@ void light_framework_init()
 
         root_application = this_app;
         light_framework_load_application(root_application);
+        _find_static_objects();
+        _load_static_objects();
         framework_loaded = 1;
 }
  
@@ -161,7 +185,7 @@ void light_framework_run(int argc, char *argv[])
 void light_framework_load_application(struct light_application *app)
 {
         if(!framework_loading)
-                light_fatal("attempted to load an application before calling light_framework_init()","");
+                light_fatal("attempted to load an application before calling light_framework_init()");
         // TODO verify at build-time that we support the runtime version requested by this app
         light_info("loading application '%s': app version %s, framework version %s",
                                         light_application_get_name(app),"NULL",LF_VERSION_STR);

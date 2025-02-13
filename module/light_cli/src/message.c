@@ -35,7 +35,7 @@ static void _cli_message_queue_event_add(struct light_object *obj, struct light_
 
 void light_cli_message_init()
 {
-        light_cli_mqueue_init(light_cli_mqueue_default);
+        light_cli_mqueue_init(&light_cli_mqueue_default);
 }
 void light_cli_mqueue_init(struct light_cli_mqueue *queue)
 {

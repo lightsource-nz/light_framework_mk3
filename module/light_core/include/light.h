@@ -51,6 +51,16 @@ struct light_event_app_launch {
         char **argv;
 };
 
+struct light_static_object {
+        void *target;
+        void (*load)(void *);
+};
+#define Light_Static_Object(_target, _load) \
+{ \
+        .target = _target, \
+        .load = _load \
+}
+
 #define Light_Module(_name, _event, ...) \
 { \
         .header = Light_Object_RO(_name, NULL, &ltype_light_module), \

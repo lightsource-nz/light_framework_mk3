@@ -10,6 +10,7 @@
 #include <light_cli.h>
 #include <stdio.h>
 #include <string.h>
+#include <libgen.h>
 
 #include "cli_private.h"
 
@@ -33,6 +34,21 @@ static void command_release(struct light_object *cmd)
 void light_cli_init()
 {
         light_cli_message_init();
+}
+void light_cli__autoload_command(void *object)
+{
+        struct light_command *command = (struct light_command *)object;
+        light_cli_register_command(command->parent, command);
+}
+void light_cli__autoload_option(void *object)
+{
+        struct light_cli_option *option = (struct light_cli_option *)object;
+        light_cli_register_option_ctx(option->command, option);
+}
+void light_cli__autoload_mqueue(void *object)
+{
+        struct light_cli_mqueue *queue = (struct light_cli_mqueue *)object;
+        light_cli_mqueue_init(queue);
 }
 // we define the internal command-line parser's input limit to 64 tokens
 #define MAX_TOKENS              64
@@ -69,7 +85,10 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         // identifying commands and options by name, and binding argument values to
         // the commands and options which expect them.
         struct cli_token token[MAX_TOKENS];
-        for(int i = 0; i < argc && i < MAX_TOKENS; i++) {
+        // token zero is a special case where we extract the command name from the path
+        token[0].type = TOKEN_CMDARG;
+        token[0].value = basename(argv[0]);
+        for(int i = 1; i < argc && i < MAX_TOKENS; i++) {
                 if(argv[i][0] == '-') {
                         if(argv[i][1] == '-') {
                                 token[i].type = TOKEN_OPT_L;
@@ -161,28 +180,41 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                 }
         }
         uint8_t ref_depth = 0;
-        light_debug("finished parsing command line, target command: '%s'", invoke->target);
-        struct light_command *last_command = invoke->target;
-        struct light_cli_invocation_result result = invoke->target->handler(invoke);
+        light_debug("finished parsing command line, target command: '%s'", invoke->target->name);
+        return LIGHT_OK;
+}
+// called by the framework once application has loaded, to dispatch command
+uint8_t cli_task(struct light_application *app)
+{
+        light_debug("calling command handler for for command '%s'", light_cli_command_get_name(static_invoke.target));
+        struct light_command *last_command = static_invoke.target;
+        struct light_cli_invocation_result result = static_invoke.target->handler(&static_invoke);
+        uint8_t reference_depth = 0;
         while(result.code != LIGHT_CLI_RESULT_SUCCESS) {
                 switch (result.code)
                 {
                 case LIGHT_CLI_RESULT_ALIAS:
+                        if(reference_depth >= LIGHT_CLI_MAX_REF_DEPTH) {
+                                light_error("command invocation exceeded maximum alias depth of %d", LIGHT_CLI_MAX_REF_DEPTH);
+                                return LF_STATUS_ERROR;
+                        }
                         light_debug("command '%s' aliased to target command '%s'",
-                                light_cli_command_get_name(invoke->target),
+                                light_cli_command_get_name(static_invoke.target),
                                 light_cli_command_get_name(result.value.command));
                                 last_command = result.value.command;
-                                result = result.value.command->handler(invoke);
+                                reference_depth++;
+                                result = result.value.command->handler(&static_invoke);
                         break;
                 
                 case LIGHT_CLI_RESULT_ERROR:
                         light_error("handler for command '%s' returned ERROR status",
                                 light_cli_command_get_name(last_command));
-                        return LIGHT_EXTERNAL;
+                        return LF_STATUS_ERROR;
                 }
         }
-        light_debug("command handler for '%s' completed successfully");
-        return LIGHT_OK;
+        light_debug("command handler for '%s' completed successfully",
+                light_cli_command_get_name(last_command));
+        return LF_STATUS_SHUTDOWN;
 }
 struct light_command *light_cli_create_subcommand(
                                 struct light_command *parent,
@@ -215,7 +247,7 @@ void light_cli_register_command(
                 return;
         }
         parent->child[parent->child_count++] = command;
-        light_trace("added subcommand '%s' to command '%s'", command->name);
+        light_debug("added subcommand '%s' to command '%s'", command->name, parent->name);
 }
 void light_cli_register_option_ctx(
                                 struct light_command *command,

@@ -8,7 +8,6 @@
 // TODO the mqueue interface can probably be excluded from the public API
 #define LIGHT_CLI_MQUEUE_DEPTH             32
 
-// 
 #define LIGHT_CLI_MAX_REF_DEPTH                 8
 
 struct light_cli_message {
@@ -42,11 +41,11 @@ extern struct lobj_type ltype_cli_message_queue;
 }
 
 #define Light_CLI_MQueue_Declare(name) \
-        extern struct light_cli_mqueue *name
+        extern struct light_cli_mqueue name
 
 #define Light_CLI_MQueue_Define(name) \
-        struct light_cli_mqueue __static_buffer _## name = Light_CLI_MQueue_Static(#name); \
-        struct light_cli_mqueue __static_object *name = &_## name
+        struct light_cli_mqueue __static_buffer name = Light_CLI_MQueue_Static(#name); \
+        static const struct light_static_object __static_object autoload_## name = Light_Static_Object(&name, light_cli__autoload_mqueue)
 
 #define LIGHT_CLI_MAX_SUBCOMMANDS               16
 #define LIGHT_CLI_MAX_OPTIONS                   16
@@ -57,6 +56,7 @@ extern struct lobj_type ltype_cli_message_queue;
 #define LIGHT_CLI_OPTION                        0
 #define LIGHT_CLI_SWITCH                        1
 struct light_cli_option {
+        struct light_command *command;
         uint8_t type;
         const char code;
         const uint8_t *name;
@@ -64,7 +64,7 @@ struct light_cli_option {
 };
 struct light_cli_invocation;
 struct light_command {
-        const struct light_command *parent;
+        struct light_command *parent;
         struct light_object header;
         const uint8_t *name;
         const uint8_t *description;
@@ -119,37 +119,42 @@ extern struct lobj_type ltype_cli_command;
         }
 
 // FIXME the arg ordering on these macros is fucking wack
-#define Light_Command_Option_Type(name, type, code, description) \
-        { type, code, name, description }
+#define Light_Command_Option_Type(name, command, type, code, description) \
+        { command, type, code, name, description }
 
-#define Light_Command_Switch(code, name, description) \
-        Light_Command_Option_Type(name, LIGHT_CLI_SWITCH, code, description)
+#define Light_Command_Switch(command, code, name, description) \
+        Light_Command_Option_Type(name, command, LIGHT_CLI_SWITCH, code, description)
 
-#define Light_Command_Option(code, name, description) \
-        Light_Command_Option_Type(name, LIGHT_CLI_OPTION, code, description)
+#define Light_Command_Option(command, code, name, description) \
+        Light_Command_Option_Type(name, command, LIGHT_CLI_OPTION, code, description)
 
 #define Light_Command_Declare(sym_name, parent) \
         extern struct light_command sym_name
 
 extern void light_cli__autoload_command(void *object);
+extern void light_cli__autoload_option(void *object);
+extern void light_cli__autoload_mqueue(void *object);
 
 #define Light_Command_Define(sym_name, parent, name, description, handler, _arg_min, _arg_max, ...) \
         struct light_command __static_descriptor sym_name = \
                 Light_Command_Static(name, parent, description, handler, _arg_min, _arg_max, __VA_ARGS__); \
-        static const __static_object struct light_command *autoload_## sym_name = &sym_name;
+        static const __static_object struct light_static_object autoload_## sym_name = \
+                Light_Static_Object(&sym_name, light_cli__autoload_command);
 
 #define Light_Command_Option_Declare(sym_name, command) \
-        extern const struct light_cli_option *sym_name
+        extern struct light_cli_option sym_name
 
 #define Light_Command_Option_Type_Define(sym_name, command, type, name, code, description) \
-        static const struct light_cli_option __static_descriptor _## sym_name = \
-                        Light_Command_Option_Type(name, type, code, description); \
-        const struct light_cli_option __static_object *sym_name = &_## sym_name
+        struct light_cli_option __static_descriptor sym_name = \
+                        Light_Command_Option_Type(name, command, type, code, description); \
+        const struct light_static_object __static_object autoload_## sym_name = \
+                Light_Static_Object(&sym_name, light_cli__autoload_option)
 #define Light_Command_Option_Define(sym_name, command, name, code, description) \
                 Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_OPTION, name, code, description)
 #define Light_Command_Switch_Define(sym_name, command, name, code, description) \
                 Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_SWITCH, name, code, description)
 
+extern struct light_command root_command;
 Light_CLI_MQueue_Declare(light_cli_mqueue_default);
 
 // called at module load-time by framework
