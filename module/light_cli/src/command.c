@@ -35,6 +35,26 @@ void light_cli_init()
 {
         light_cli_message_init();
 }
+#define LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE      128
+uint8_t *light_cli_command_get_full_name(struct light_command *command)
+{
+        static uint8_t buffer[LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE];
+        struct light_command *stack[LIGHT_CLI_MAX_COMMAND_DEPTH];
+        uint8_t depth = 0;
+        struct light_command *next = command;
+        while(next != &root_command) {
+                stack[depth] = next;
+                depth++;
+                next = next->parent;
+        }
+        uint8_t *cursor = buffer;
+        uint8_t *end = buffer + LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE;
+        for(uint8_t i = depth - 1; i < 255; i--) {
+                strncat(cursor, light_cli_command_get_short_name(stack[i]), end - cursor);
+                if(i > 0) strncat(cursor, " ", end - cursor);
+        }
+        return buffer;
+}
 void light_cli__autoload_command(void *object)
 {
         struct light_command *command = (struct light_command *)object;
@@ -159,7 +179,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
 
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
-                                                        optname, light_cli_command_get_name(context));
+                                                        optname, light_cli_command_get_short_name(context));
                                         return LIGHT_INVALID;
                                 }
                                 optval->option = option;
@@ -169,7 +189,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
 
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
-                                                token[i].value, light_cli_command_get_name(context));
+                                                token[i].value, light_cli_command_get_short_name(context));
                                         return LIGHT_INVALID;
                                 }
                                 optval->option = option;
@@ -186,7 +206,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
 // called by the framework once application has loaded, to dispatch command
 uint8_t cli_task(struct light_application *app)
 {
-        light_debug("calling command handler for for command '%s'", light_cli_command_get_name(static_invoke.target));
+        light_debug("calling command handler for for command '%s'", light_cli_command_get_full_name(static_invoke.target));
         struct light_command *last_command = static_invoke.target;
         struct light_cli_invocation_result result = static_invoke.target->handler(&static_invoke);
         uint8_t reference_depth = 0;
@@ -199,8 +219,8 @@ uint8_t cli_task(struct light_application *app)
                                 return LF_STATUS_ERROR;
                         }
                         light_debug("command '%s' aliased to target command '%s'",
-                                light_cli_command_get_name(static_invoke.target),
-                                light_cli_command_get_name(result.value.command));
+                                light_cli_command_get_short_name(static_invoke.target),
+                                light_cli_command_get_short_name(result.value.command));
                                 last_command = result.value.command;
                                 reference_depth++;
                                 result = result.value.command->handler(&static_invoke);
@@ -208,12 +228,12 @@ uint8_t cli_task(struct light_application *app)
                 
                 case LIGHT_CLI_RESULT_ERROR:
                         light_error("handler for command '%s' returned ERROR status",
-                                light_cli_command_get_name(last_command));
+                                light_cli_command_get_short_name(last_command));
                         return LF_STATUS_ERROR;
                 }
         }
         light_debug("command handler for '%s' completed successfully",
-                light_cli_command_get_name(last_command));
+                light_cli_command_get_short_name(last_command));
         return LF_STATUS_RUN;
 }
 struct light_command *light_cli_create_subcommand(
@@ -256,11 +276,11 @@ void light_cli_register_option_ctx(
         if(!command)
                 return light_cli_register_option_ctx(&root_command, option);
         if(command->option_count >= LIGHT_CLI_MAX_OPTIONS) {
-                light_warn("could not add option '%s' to command '%s': max options reached", light_cli_option_get_name(option), light_cli_command_get_name(command));
+                light_warn("could not add option '%s' to command '%s': max options reached", light_cli_option_get_name(option), light_cli_command_get_short_name(command));
                 return;
         }
         command->option[command->child_count++] = option;
-        light_trace("added option '%s' to command '%s'", light_cli_option_get_name(option), light_cli_command_get_name(command));
+        light_trace("added option '%s' to command '%s'", light_cli_option_get_name(option), light_cli_command_get_short_name(command));
 }
 
 struct light_command *light_cli_find_command(
@@ -270,7 +290,7 @@ struct light_command *light_cli_find_command(
                 return light_cli_find_command(&root_command, name);
         }
         for(uint8_t i = 0; i < parent->child_count && i < LIGHT_CLI_MAX_SUBCOMMANDS; i++) {
-                if(strncmp(light_cli_command_get_name(parent->child[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
+                if(strcmp(light_cli_command_get_short_name(parent->child[i]), name) == 0) {
                         return parent->child[i];
                 }
         }

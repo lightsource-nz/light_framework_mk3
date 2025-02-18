@@ -52,6 +52,7 @@ extern struct lobj_type ltype_cli_message_queue;
 #define LIGHT_CLI_MAX_ARGS                      16
 #define LIGHT_CLI_OPTION_RAWVALUE_MAX           32
 #define LIGHT_CLI_OPTION_VALUE_MAX              32
+#define LIGHT_CLI_MAX_COMMAND_DEPTH             LIGHT_CLI_MAX_SUBCOMMANDS
 
 #define LIGHT_CLI_OPTION                        0
 #define LIGHT_CLI_SWITCH                        1
@@ -160,13 +161,18 @@ Light_CLI_MQueue_Declare(light_cli_mqueue_default);
 // called at module load-time by framework
 extern void light_cli_init();
 
+extern uint8_t *light_cli_command_get_full_name(struct light_command *command);
 static inline const struct light_command *light_cli_command_get_parent(struct light_command *command)
 {
         return command->parent;
 }
-static inline const uint8_t *light_cli_command_get_name(struct light_command *command)
+static inline const uint8_t *light_cli_get_object_id(struct light_command *command)
 {
         return light_object_get_name(&command->header);
+}
+static inline const uint8_t *light_cli_command_get_short_name(struct light_command *command)
+{
+        return command->name;
 }
 static inline const uint8_t *light_cli_command_get_description(struct light_command *command)
 {
