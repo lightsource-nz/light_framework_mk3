@@ -1,7 +1,8 @@
 {
     "version": 6,
     "include": [
-        "cmake/light_presets/light_presets.json"
+        "cmake/light_presets/light_presets.json",
+        "cmake/light_presets/light_pico_presets.json"
     ],
     "configurePresets": [
         {
