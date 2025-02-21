@@ -53,9 +53,8 @@ uint8_t *light_cli_command_get_full_name(struct light_command *command)
                 strncat(cursor, light_cli_command_get_short_name(stack[i]), end - cursor);
                 if(i > 0) strncat(cursor, " ", end - cursor);
         }
-        uint32_t out_size = cursor - buffer;
-        uint8_t *out = light_alloc(out_size);
-        memcpy(out, buffer, out_size);
+        uint8_t *out = light_alloc(strlen(buffer));
+        strcpy(out, buffer);
         return out;
 }
 void light_cli__autoload_command(void *object)
@@ -203,13 +202,17 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                 }
         }
         uint8_t ref_depth = 0;
-        light_debug("finished parsing command line, target command: '%s'", light_cli_command_get_full_name(invoke->target));
+        uint8_t *full_name = light_cli_command_get_full_name(invoke->target);
+        light_debug("finished parsing command line, target command: '%s'", full_name);
+        light_free(full_name);
         return LIGHT_OK;
 }
 // called by the framework once application has loaded, to dispatch command
 uint8_t cli_task(struct light_application *app)
 {
-        light_debug("calling command handler for for command '%s'", light_cli_command_get_full_name(static_invoke.target));
+        uint8_t *full_name = light_cli_command_get_full_name(static_invoke.target);
+        light_debug("calling command handler for for command '%s'", full_name);
+        light_free(full_name);
         struct light_command *last_command = static_invoke.target;
         struct light_cli_invocation_result result = static_invoke.target->handler(&static_invoke);
         uint8_t reference_depth = 0;
