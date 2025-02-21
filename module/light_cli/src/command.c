@@ -53,7 +53,10 @@ uint8_t *light_cli_command_get_full_name(struct light_command *command)
                 strncat(cursor, light_cli_command_get_short_name(stack[i]), end - cursor);
                 if(i > 0) strncat(cursor, " ", end - cursor);
         }
-        return buffer;
+        uint32_t out_size = cursor - buffer;
+        uint8_t *out = light_alloc(out_size);
+        memcpy(out, buffer, out_size);
+        return out;
 }
 void light_cli__autoload_command(void *object)
 {
@@ -200,7 +203,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                 }
         }
         uint8_t ref_depth = 0;
-        light_debug("finished parsing command line, target command: '%s'", invoke->target->name);
+        light_debug("finished parsing command line, target command: '%s'", light_cli_command_get_full_name(invoke->target));
         return LIGHT_OK;
 }
 // called by the framework once application has loaded, to dispatch command
