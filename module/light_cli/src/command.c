@@ -224,12 +224,14 @@ uint8_t cli_task(struct light_application *app)
                                 light_error("command invocation exceeded maximum alias depth of %d", LIGHT_CLI_MAX_REF_DEPTH);
                                 return LF_STATUS_ERROR;
                         }
-                        light_debug("command '%s' aliased to target command '%s'",
-                                light_cli_command_get_short_name(static_invoke.target),
-                                light_cli_command_get_short_name(result.value.command));
-                                last_command = result.value.command;
-                                reference_depth++;
-                                result = result.value.command->handler(&static_invoke);
+                        uint8_t *source = light_cli_command_get_full_name(last_command);
+                        uint8_t *target = light_cli_command_get_full_name(result.value.command);
+                        light_debug("command '%s' aliased to target command '%s'", source, target);
+                        light_free(source);
+                        light_free(target);
+                        last_command = result.value.command;
+                        reference_depth++;
+                        result = result.value.command->handler(&static_invoke);
                         break;
                 
                 case LIGHT_CLI_RESULT_ERROR:
