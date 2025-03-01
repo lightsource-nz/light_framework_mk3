@@ -38,8 +38,15 @@ void light_cli_init()
 #define LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE      128
 uint8_t *light_cli_command_get_full_name(struct light_command *command)
 {
+        static struct light_command *last_command;
         static uint8_t buffer[LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE];
         struct light_command *stack[LIGHT_CLI_MAX_COMMAND_DEPTH];
+        uint8_t *out;
+        if(last_command == command) {
+                out = light_alloc(strlen(buffer));
+                strcpy(out, buffer);
+                return out;
+        }
         uint8_t depth = 0;
         struct light_command *next = command;
         while(next != &root_command) {
@@ -53,8 +60,9 @@ uint8_t *light_cli_command_get_full_name(struct light_command *command)
                 strncat(cursor, light_cli_command_get_short_name(stack[i]), end - cursor);
                 if(i > 0) strncat(cursor, " ", end - cursor);
         }
-        uint8_t *out = light_alloc(strlen(buffer));
+        out = light_alloc(strlen(buffer));
         strcpy(out, buffer);
+        last_command = command;
         return out;
 }
 void light_cli__autoload_command(void *object)
@@ -319,11 +327,19 @@ struct light_cli_option *light_cli_find_command_option(
         return NULL;
 }
 
+const uint8_t *light_cli_invocation_get_arg_value(struct light_cli_invocation *invoke, const uint8_t index)
+{
+        if(index >= invoke->args_bound) return NULL;
+        return invoke->arg[index];
+}
 const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
 {
+        struct light_cli_option *option = light_cli_find_command_option(invoke->target, option_name);
+        if(!option) return NULL;
         for(uint8_t i = 0; i < invoke->option_count; i++) {
-                if(invoke->option[i].option == light_cli_find_command_option(invoke->target, option_name)) {
+                if(invoke->option[i].option == option) {
                         return invoke->option[i].value;
                 }
         }
+        return NULL;
 }

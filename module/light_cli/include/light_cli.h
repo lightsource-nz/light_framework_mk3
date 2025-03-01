@@ -203,6 +203,7 @@ static inline struct light_cli_option *light_cli_find_option(const uint8_t *name
         return light_cli_find_command_option(NULL, name);
 }
 
+extern const uint8_t *light_cli_invocation_get_arg_value(struct light_cli_invocation *invoke, uint8_t index);
 extern const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name);
 static inline bool light_cli_invocation_option_is_set(struct light_cli_invocation *invoke, const uint8_t *option_name)
 {
