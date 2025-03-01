@@ -67,7 +67,8 @@ struct light_cli_invocation;
 struct light_command {
         struct light_command *parent;
         struct light_object header;
-        const uint8_t *name;
+        const uint8_t *short_name;
+        const uint8_t *full_name;
         const uint8_t *description;
         struct light_cli_invocation_result (*handler)(struct light_cli_invocation *);
         uint8_t arg_min;
@@ -110,7 +111,7 @@ extern struct lobj_type ltype_cli_command;
 #define Light_Command_Static(_name, _parent, _desc, _handler, _arg_min, _arg_max, ...) \
         { \
                 .header = Light_Object_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
-                .name = _name, \
+                .short_name = _name, \
                 .parent = _parent, \
                 .description = _desc, \
                 .handler = _handler, \
@@ -161,7 +162,10 @@ Light_CLI_MQueue_Declare(light_cli_mqueue_default);
 // called at module load-time by framework
 extern void light_cli_init();
 
-extern uint8_t *light_cli_command_get_full_name(struct light_command *command);
+static inline const uint8_t *light_cli_command_get_full_name(struct light_command *command)
+{
+        return command->full_name;
+}
 static inline const struct light_command *light_cli_command_get_parent(struct light_command *command)
 {
         return command->parent;
@@ -172,7 +176,7 @@ static inline const uint8_t *light_cli_get_object_id(struct light_command *comma
 }
 static inline const uint8_t *light_cli_command_get_short_name(struct light_command *command)
 {
-        return command->name;
+        return command->short_name;
 }
 static inline const uint8_t *light_cli_command_get_description(struct light_command *command)
 {

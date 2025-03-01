@@ -36,17 +36,12 @@ void light_cli_init()
         light_cli_message_init();
 }
 #define LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE      128
-uint8_t *light_cli_command_get_full_name(struct light_command *command)
+static const uint8_t *cli_command_get_full_name(struct light_command *command)
 {
-        static struct light_command *last_command;
         static uint8_t buffer[LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE];
         struct light_command *stack[LIGHT_CLI_MAX_COMMAND_DEPTH];
+        memset(buffer, 0, LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE);
         uint8_t *out;
-        if(last_command == command) {
-                out = light_alloc(strlen(buffer));
-                strcpy(out, buffer);
-                return out;
-        }
         uint8_t depth = 0;
         struct light_command *next = command;
         while(next != &root_command) {
@@ -62,7 +57,6 @@ uint8_t *light_cli_command_get_full_name(struct light_command *command)
         }
         out = light_alloc(strlen(buffer));
         strcpy(out, buffer);
-        last_command = command;
         return out;
 }
 void light_cli__autoload_command(void *object)
@@ -210,17 +204,15 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                 }
         }
         uint8_t ref_depth = 0;
-        uint8_t *full_name = light_cli_command_get_full_name(invoke->target);
+        const uint8_t *full_name = light_cli_command_get_full_name(invoke->target);
         light_debug("finished parsing command line, target command: '%s'", full_name);
-        light_free(full_name);
         return LIGHT_OK;
 }
 // called by the framework once application has loaded, to dispatch command
 uint8_t cli_task(struct light_application *app)
 {
-        uint8_t *full_name = light_cli_command_get_full_name(static_invoke.target);
+        const uint8_t *full_name = light_cli_command_get_full_name(static_invoke.target);
         light_debug("calling command handler for for command '%s'", full_name);
-        light_free(full_name);
         struct light_command *last_command = static_invoke.target;
         struct light_cli_invocation_result result = static_invoke.target->handler(&static_invoke);
         uint8_t reference_depth = 0;
@@ -232,11 +224,9 @@ uint8_t cli_task(struct light_application *app)
                                 light_error("command invocation exceeded maximum alias depth of %d", LIGHT_CLI_MAX_REF_DEPTH);
                                 return LF_STATUS_ERROR;
                         }
-                        uint8_t *source = light_cli_command_get_full_name(last_command);
-                        uint8_t *target = light_cli_command_get_full_name(result.value.command);
+                        const uint8_t *source = light_cli_command_get_full_name(last_command);
+                        const uint8_t *target = light_cli_command_get_full_name(result.value.command);
                         light_debug("command '%s' aliased to target command '%s'", source, target);
-                        light_free(source);
-                        light_free(target);
                         last_command = result.value.command;
                         reference_depth++;
                         result = result.value.command->handler(&static_invoke);
@@ -252,21 +242,21 @@ uint8_t cli_task(struct light_application *app)
                 light_cli_command_get_short_name(last_command));
         return LF_STATUS_RUN;
 }
-struct light_command *light_cli_create_subcommand(
+struct light_command *light_cli_create_command(
                                 struct light_command *parent,
                                 const uint8_t *name,
                                 const uint8_t *description,
                                 struct light_cli_invocation_result (*handler)(struct light_cli_invocation *))
 {
         if(!parent)
-                return light_cli_create_subcommand(&root_command, name, description, handler);
+                return light_cli_create_command(&root_command, name, description, handler);
         struct light_command *command;
         if(!(command = light_alloc(sizeof(struct light_command)))) {
                 light_warn("could not create new command '%s', failed to allocate memory", name);
                 return NULL;
         }
 
-        command->name = name;
+        command->short_name = name;
         command->description = description;
         command->handler = handler;
         light_cli_register_command(parent, command);
@@ -279,11 +269,14 @@ void light_cli_register_command(
         if(!parent)
                 return light_cli_register_command(&root_command, command);
         if(parent->child_count >= LIGHT_CLI_MAX_SUBCOMMANDS) {
-                light_warn("failed to register command '%s', parent command exceeded maximum subcommand count", command->name);
+                light_warn("failed to register command '%s', parent command exceeded maximum subcommand count", command->short_name);
                 return;
         }
+        command->parent = parent;
         parent->child[parent->child_count++] = command;
-        light_debug("added subcommand '%s' to command '%s'", command->name, parent->name);
+        // the "full name" string is heap allocated separately to the command object
+        command->full_name = cli_command_get_full_name(command);
+        light_debug("added subcommand '%s' to command '%s'", command->short_name, parent->short_name);
 }
 void light_cli_register_option_ctx(
                                 struct light_command *command,

@@ -37,7 +37,6 @@ static void light_command_event(const struct light_module *mod, uint8_t event_id
 }
 static void handle_command_line(int argc, char *argv[])
 {
-        struct light_cli_invocation invoke;
         if(light_cli_process_command_line(&root_command, &static_invoke, argc, argv)) {
                 light_fatal("something went wrong while trying to process the incoming command line");
         }
