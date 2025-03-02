@@ -80,14 +80,14 @@ struct light_command {
 };
 struct light_cli_option_value {
         const struct light_cli_option *option;
-        uint8_t *value;
+        const uint8_t *value;
 };
 struct light_cli_invocation {
         struct light_command *target;
         uint8_t option_count;
         struct light_cli_option_value option[LIGHT_CLI_MAX_OPTIONS];
         uint8_t args_bound;
-        uint8_t *arg[LIGHT_CLI_MAX_ARGS];
+        const uint8_t *arg[LIGHT_CLI_MAX_ARGS];
 };
 #define LIGHT_CLI_RESULT_SUCCESS        0
 #define LIGHT_CLI_RESULT_ALIAS          1
@@ -211,7 +211,7 @@ extern const uint8_t *light_cli_invocation_get_arg_value(struct light_cli_invoca
 extern const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name);
 static inline bool light_cli_invocation_option_is_set(struct light_cli_invocation *invoke, const uint8_t *option_name)
 {
-        return light_cli_invocation_get_option_value(invoke, option_name) == NULL;
+        return light_cli_invocation_get_option_value(invoke, option_name) != NULL;
 }
 static inline bool light_cli_invocation_get_switch_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
 {

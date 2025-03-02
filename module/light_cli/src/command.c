@@ -157,17 +157,21 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                         }
                         if(state == STATE_BIND) {
                                 if(context_opt) {
-                                        strncpy(context_opt->value, token[i].value, LIGHT_CLI_OPTION_VALUE_MAX);
+                                        context_opt->value = token[i].value;
                                         context_opt = NULL;
-                                } else if(to_bind) {
-                                        strncpy(invoke->arg[invoke->args_bound++], token[i].value, LIGHT_CLI_OPTION_VALUE_MAX);
-                                        to_bind--;
                                 } else {
-                                        light_error("too many arguments to command '%s' (max: %d)", invoke->target, invoke->target->arg_max);
-                                        return LIGHT_INVALID;
+                                        if(invoke->args_bound >= LIGHT_CLI_MAX_ARGS) {
+                                                light_error("too many arguments to command '%s' (max: %d)", light_cli_command_get_full_name(invoke->target), invoke->target->arg_max);
+                                                return LIGHT_INVALID;
+                                        }
+                                        if(to_bind <= 0)
+                                                light_warn("excess arguments supplied to command '%s'", light_cli_command_get_full_name(invoke->target));
+                                        invoke->arg[invoke->args_bound++] = token[i].value;
+                                        to_bind--;
                                 }
                         }
                         break;
+                case TOKEN_OPT_S:
                 case TOKEN_OPT_L:
                         if(state == STATE_MATCH) {
                                 invoke->target = context;
@@ -187,7 +191,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                         return LIGHT_INVALID;
                                 }
                                 optval->option = option;
-                                strncpy(optval->value, ++eq_idx, LIGHT_CLI_OPTION_VALUE_MAX);
+                                optval->value = ++eq_idx;
                         } else {
                                 struct light_cli_option *option = light_cli_find_command_option(context, token[i].value);
 
@@ -196,9 +200,16 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                                 token[i].value, light_cli_command_get_short_name(context));
                                         return LIGHT_INVALID;
                                 }
+                                switch(option->type) {
+                                case LIGHT_CLI_OPTION:
+                                        // set this option as the bind context, so its argument is bound
+                                        context_opt = optval;
+                                        optval->value = token[i].value;
+                                        break;
+                                case LIGHT_CLI_SWITCH:
+                                        optval->value = "1";
+                                }
                                 optval->option = option;
-                                // set this option as the bind context, so its argument is bound
-                                context_opt = optval;
                         }
                         break;
                 }
