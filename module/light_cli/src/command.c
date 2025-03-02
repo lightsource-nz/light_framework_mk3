@@ -288,7 +288,7 @@ void light_cli_register_option_ctx(
                 light_warn("could not add option '%s' to command '%s': max options reached", light_cli_option_get_name(option), light_cli_command_get_short_name(command));
                 return;
         }
-        command->option[command->child_count++] = option;
+        command->option[command->option_count++] = option;
         light_trace("added option '%s' to command '%s'", light_cli_option_get_name(option), light_cli_command_get_short_name(command));
 }
 
