@@ -1,51 +1,12 @@
 #ifndef _LIGHT_CLI_H
 #define _LIGHT_CLI_H
 
-// only the 'fast' and 'faster' message types are handled by this facility
-#define LIGHT_CLI_MSG_FAST                    0
-#define LIGHT_CLI_MSG_FASTER                  1
-
-// TODO the mqueue interface can probably be excluded from the public API
-#define LIGHT_CLI_MQUEUE_DEPTH             32
+#include <threads.h>
+#include <stdarg.h>
 
 #define LIGHT_CLI_MAX_REF_DEPTH                 8
 
-struct light_cli_message {
-        uint8_t flags;
-        uint8_t *text;
-        uint8_t argc;
-        void *argv;
-};
-
-// .message[] is treated as a circular buffer, collisions are avoided by
-// checking that .count <= LIGHT_CLI_MQUEUE_DEPTH before writes
-struct light_cli_mqueue {
-        struct light_object obj_header;
-        uint8_t count;
-        uint8_t head;
-        struct light_cli_message message[LIGHT_CLI_MQUEUE_DEPTH];
-};
-
-extern struct lobj_type ltype_cli_message_queue;
-
-#define to_mqueue(ptr) container_of(ptr, struct light_cli_mqueue, obj_header)
 #define to_command(ptr) container_of(ptr, struct light_command, header)
-
-#define Light_CLI_MQueue(_name) \
-{ \
-        .obj_header = Light_Object_RO(_name, NULL, &ltype_cli_message_queue), \
-}
-#define Light_CLI_MQueue_Static(_name) \
-{ \
-        .obj_header = Light_Object_Static_RO(_name, NULL, &ltype_cli_message_queue) \
-}
-
-#define Light_CLI_MQueue_Declare(name) \
-        extern struct light_cli_mqueue name
-
-#define Light_CLI_MQueue_Define(name) \
-        struct light_cli_mqueue __static_buffer name = Light_CLI_MQueue_Static(#name); \
-        static const struct light_static_object __static_object autoload_## name = Light_Static_Object(&name, light_cli__autoload_mqueue)
 
 #define LIGHT_CLI_MAX_SUBCOMMANDS               16
 #define LIGHT_CLI_MAX_OPTIONS                   16
@@ -135,7 +96,6 @@ extern struct lobj_type ltype_cli_command;
 
 extern void light_cli__autoload_command(void *object);
 extern void light_cli__autoload_option(void *object);
-extern void light_cli__autoload_mqueue(void *object);
 
 #define Light_Command_Define(sym_name, parent, name, description, handler, _arg_min, _arg_max, ...) \
         struct light_command __static_descriptor sym_name = \
@@ -157,7 +117,6 @@ extern void light_cli__autoload_mqueue(void *object);
                 Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_SWITCH, name, code, description)
 
 extern struct light_command root_command;
-Light_CLI_MQueue_Declare(light_cli_mqueue_default);
 
 // called at module load-time by framework
 extern void light_cli_init();
@@ -218,21 +177,6 @@ static inline bool light_cli_invocation_get_switch_value(struct light_cli_invoca
         return light_cli_invocation_option_is_set(invoke, option_name);
 }
 
-extern void light_cli_mqueue_init(struct light_cli_mqueue *queue);
-extern void light_cli_mqueue_add(struct light_cli_mqueue *queue, uint8_t flags, uint8_t *text, uint8_t argc, void *argv);
-
-//   synchronous command-line messages are written to stdout while the caller waits,
-// so they should not be sent from signal or interrupt context
-extern void light_cli_message_sync(const uint8_t *message);
-extern void light_cli_message_f_sync(const uint8_t *format, ...);
-//   'fast' CLI messages are put into a queue that is processed on the main stack,
-// but still perform string formatting synchronously before queueing the message
-extern void light_cli_message_fast(const uint8_t *message);
-extern void light_cli_message_f_fast(const uint8_t *format, ...);
-//   'faster' CLI messages defer all CPU-intensive work for asynchronous processing,
-// with the consequence that all referenced objects must remain in scope until
-// the kernel worker can perform string formatting
-extern void light_cli_message_f_faster(const uint8_t *format, ...);
 // called at application load-time by framework
 extern uint8_t light_cli_process_command_line(struct light_command *root, struct light_cli_invocation *invoke, int argc, char *argv[]);
 extern uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke);

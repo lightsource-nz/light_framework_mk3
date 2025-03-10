@@ -7,12 +7,17 @@
  * 
  */
 
-#include "light_common.h"
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <light_core_port.h>
+#include <light_object.h>
+#include <light_stream.h>
+#include <light_common.h>
+#include <light_platform.h>
 
 #include <stdio.h>
 #include <string.h>
-
-static uint8_t log_buffer[LIGHT_LOG_BUFFER_SIZE];
 
 void light_common_init()
 {
@@ -74,16 +79,58 @@ const uint8_t *light_log_level_to_string(uint8_t level)
                 return "UNDEFINED";
         }
 }
-
-void light_log_internal(const uint8_t level, const uint8_t *func, const uint8_t *format, ...)
+static void _log_synchronous(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args);
+static void _log_fast(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args);
+static void _log_faster(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args);
+void light_log_internal(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, ...)
 {
-        snprintf(log_buffer, LIGHT_LOG_BUFFER_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
-        printf(log_buffer);
-
         va_list args;
         va_start(args, format);
-        vsnprintf(log_buffer, LIGHT_LOG_BUFFER_SIZE, format, args);
-        va_end(args);
-        printf(log_buffer);
-        putc('\n', stdout);
+        if(light_platform_task_is_main()) {
+                _log_synchronous(stream, level, func, format, args);
+        } else switch(light_stream_get_background_logging_mode(stream)) {
+                case LIGHT_MSG_FAST:
+                _log_fast(stream, level, func, format, args);
+                break;
+                case LIGHT_MSG_FASTER:
+                _log_faster(stream, level, func, format, args);
+                break;
+        }
+}
+static void _log_synchronous(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
+{
+        uint8_t log_buffer_pri[LIGHT_LOG_BUFFER_PRI_SIZE];
+        uint8_t log_buffer_sec[LIGHT_LOG_BUFFER_SEC_SIZE];
+        uint8_t *restrict cursor;
+        memset(&log_buffer_pri, 0, LIGHT_LOG_BUFFER_PRI_SIZE);
+        memset(&log_buffer_sec, 0, LIGHT_LOG_BUFFER_SEC_SIZE);
+        uint8_t *message;
+        uint8_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_PRI_SIZE : LIGHT_LOG_BUFFER_SEC_SIZE;
+        snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
+        cursor = strncat(log_buffer_sec, log_buffer_pri, max_copy);
+       
+        vsnprintf(log_buffer_pri, LIGHT_LOG_BUFFER_SEC_SIZE - (cursor - log_buffer_sec), format, args);
+        cursor = strncat(cursor, log_buffer_pri, max_copy);
+        cursor = strcat(cursor, "\n");
+        stream->handler(stream, log_buffer_sec);
+}
+static void _log_fast(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
+{
+        uint8_t log_buffer_pri[LIGHT_LOG_BUFFER_PRI_SIZE];
+        uint8_t log_buffer_sec[LIGHT_LOG_BUFFER_SEC_SIZE];
+        uint8_t *restrict cursor;
+        uint8_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_SEC_SIZE : LIGHT_LOG_BUFFER_PRI_SIZE;
+        snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
+        cursor = strncat(log_buffer_sec, log_buffer_pri, max_copy);
+       
+        vsnprintf(log_buffer_pri, LIGHT_LOG_BUFFER_SEC_SIZE - (cursor - log_buffer_sec), format, args);
+        cursor = strncat(cursor, log_buffer_pri, max_copy);
+        cursor = strcat(cursor, "\n");
+        uint8_t *msg_text = light_alloc(strlen(log_buffer_sec));
+        strcpy(msg_text, log_buffer_sec);
+        light_stream_mqueue_add_fast(&stream->queue, msg_text);
+}
+static void _log_faster(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
+{
+        light_stream_message_vf_faster(stream, format, args);
 }

@@ -1,9 +1,14 @@
 #ifndef _LIGHT_CORE_H
 #define _LIGHT_CORE_H
 
-#include <light_common.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdbool.h>
+
 #include <light_core_port.h>
 #include <light_object.h>
+#include <light_stream.h>
+#include <light_common.h>
 #include <light_platform.h>
 
 // TODO implement version fields properly

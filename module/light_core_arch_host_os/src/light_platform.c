@@ -14,6 +14,8 @@
 #define _XOPEN_SOURCE 700
 #include <light.h>
 
+#include <threads.h>
+
 #include <unistd.h>
 #ifndef _POSIX_TIMERS
         #error "light framework native application host requires POSIX timer support"
@@ -37,6 +39,8 @@ static uint8_t _get_free_timer_instance();
 static void _light_platform_timer_signal_handler(int sig, siginfo_t *si, void *uc);
 static uint32_t system_time_at_init;
 
+thrd_t main_task;
+
 void light_platform_init()
 {
         struct sigevent event;
@@ -44,6 +48,8 @@ void light_platform_init()
         int status;
 
         system_time_at_init = light_platform_get_absolute_time_ms();
+
+        main_task = thrd_current();
         
         action.sa_flags = SA_SIGINFO;
         action.sa_sigaction = _light_platform_timer_signal_handler;
@@ -56,6 +62,14 @@ void light_platform_init()
         if((status = timer_create(CLOCK_MONOTONIC, NULL, &system_timer_id)) != 0) {
                 light_fatal("could not create system timer: timer_create() failed with return code [%d]", status);
         }
+}
+light_task_t light_platform_get_task()
+{
+        return thrd_current();
+}
+light_task_t light_platform_get_main_task()
+{
+        return main_task;
 }
 static uint8_t _get_free_timer_instance()
 {

@@ -14,7 +14,6 @@ target_sources(
         light_cli INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/src/module.c
         ${CMAKE_CURRENT_LIST_DIR}/src/command.c
-        ${CMAKE_CURRENT_LIST_DIR}/src/message.c
 )
 
 target_link_libraries(

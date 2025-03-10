@@ -18,6 +18,7 @@ target_sources(
         ${CMAKE_CURRENT_LIST_DIR}/src/framework.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_common.c
         ${CMAKE_CURRENT_LIST_DIR}/src/list.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/stream.c
 )
 
 if(LIGHT_SYSTEM STREQUAL PICO_SDK)

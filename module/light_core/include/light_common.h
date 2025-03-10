@@ -109,37 +109,40 @@
 
 #define LIGHT_MAX_LOG_LEVEL GET_LOG_LEVEL(FILTER_LOG_LEVEL)
 
-#define LIGHT_LOG_BUFFER_SIZE 128
+// TODO tune these buffer sizes, and make them configurable
+#define LIGHT_LOG_BUFFER_PRI_SIZE 128
+#define LIGHT_LOG_BUFFER_SEC_SIZE 128
 
-
+// TODO initially the default stream for INFO and lower levels is stdout, with WARN and ERROR going to stderr.
+// but these defaults should probably be made configurable
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_TRACE)
-#define light_trace(format, ...) light_log_internal(LOG_TRACE, __func__, format __VA_OPT__(,) __VA_ARGS__)
+#define light_trace(format, ...) light_log_internal(light_stream_stdout, LOG_TRACE, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_trace(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_DEBUG)
-#define light_debug(format, ...) light_log_internal(LOG_DEBUG, __func__, format __VA_OPT__(,) __VA_ARGS__)
+#define light_debug(format, ...) light_log_internal(light_stream_stdout, LOG_DEBUG, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_debug(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_INFO)
-#define light_info(format, ...) light_log_internal(LOG_INFO, __func__, format __VA_OPT__(,) __VA_ARGS__)
+#define light_info(format, ...) light_log_internal(light_stream_stdout, LOG_INFO, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_info(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_WARN)
-#define light_warn(format, ...) light_log_internal(LOG_WARN, __func__, format __VA_OPT__(,) __VA_ARGS__)
+#define light_warn(format, ...) light_log_internal(light_stream_stderr, LOG_WARN, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_warn(format, ...) (void)format
 #endif
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_ERROR)
-#define light_error(format, ...) light_log_internal(LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__)
+#define light_error(format, ...) light_log_internal(light_stream_stderr, LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define light_error(format, ...) (void)format
 #endif
 #define light_fatal(format, ...) \
 do { \
-        light_log_internal(LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__); \
+        light_log_internal(light_stream_stderr, LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__); \
         exit(-1); \
 } while(0)
 
@@ -217,7 +220,7 @@ extern void light_common_init();
 extern const uint8_t *light_error_to_string(uint8_t level);
 extern const uint8_t *light_run_mode_to_string(uint8_t mode);
 extern const uint8_t *light_log_level_to_string(uint8_t level);
-extern void light_log_internal(const uint8_t level,const uint8_t *func, const uint8_t *format, ...);
+extern void light_log_internal(struct light_stream *stream, const uint8_t level,const uint8_t *func, const uint8_t *format, ...);
 
 // mapped to default malloc/free routines for SYSTEM
 extern void *light_alloc(size_t size);

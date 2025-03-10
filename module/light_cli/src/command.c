@@ -33,7 +33,7 @@ static void command_release(struct light_object *cmd)
 }
 void light_cli_init()
 {
-        light_cli_message_init();
+        light_stream_setup();
 }
 #define LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE      128
 static const uint8_t *cli_command_get_full_name(struct light_command *command)
@@ -69,10 +69,10 @@ void light_cli__autoload_option(void *object)
         struct light_cli_option *option = (struct light_cli_option *)object;
         light_cli_register_option_ctx(option->command, option);
 }
-void light_cli__autoload_mqueue(void *object)
+void light_cli__autoload_stream(void *object)
 {
-        struct light_cli_mqueue *queue = (struct light_cli_mqueue *)object;
-        light_cli_mqueue_init(queue);
+        struct light_stream *stream = (struct light_stream *)object;
+        light_stream_init(stream);
 }
 // we define the internal command-line parser's input limit to 64 tokens
 #define MAX_TOKENS              64
@@ -287,7 +287,7 @@ void light_cli_register_command(
         parent->child[parent->child_count++] = command;
         // the "full name" string is heap allocated separately to the command object
         command->full_name = cli_command_get_full_name(command);
-        light_debug("added subcommand '%s' to command '%s'", command->short_name, parent->short_name);
+        light_trace("added subcommand '%s' to command '%s'", command->short_name, parent->short_name);
 }
 void light_cli_register_option_ctx(
                                 struct light_command *command,

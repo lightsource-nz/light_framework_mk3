@@ -9,7 +9,7 @@
 
 // FIXME all operations need to have bounds-checking added, for basic safety and security
 
-#include "light_common.h"
+#include <light.h>
 
 #include <stdio.h>
 #include <string.h>

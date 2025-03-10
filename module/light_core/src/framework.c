@@ -34,7 +34,6 @@ static uint8_t app_periodic_task_count = 0;
 static struct light_task app_periodic_tasks[LF_TASKS_MAX];
 static uint8_t app_one_shot_task_count = 0;
 static struct light_task app_one_shot_tasks[LF_TASKS_MAX];
-
 // TODO need to properly init reference counts in object headers of static modules
 static void _find_static_modules()
 {
@@ -147,6 +146,9 @@ void light_framework_init()
 {
         light_common_init();
         light_platform_init();
+        // bootstrap the output stream system early so that we have access to logging
+        light_stream_setup();
+
         light_info("Loading Light Framework runtime...");
         light_info("%s", LF_INFO_STR);
 

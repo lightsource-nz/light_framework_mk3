@@ -1,5 +1,12 @@
 SECTIONS
 {
+        .light.stream :
+        {
+                . = ALIGN(4);
+                __light_streams_start = .;
+                KEEP(*(.light.static_stream))
+                __light_streams_end = .;
+        }
         .light.module :
         {
                 . = ALIGN(4);
