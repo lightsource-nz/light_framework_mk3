@@ -212,6 +212,7 @@ do { \
 #define LIGHT_NO_RESOURCE               (uint8_t) 0x3u          // insufficient system resource for operation
 #define LIGHT_STATE_INVALID             (uint8_t) 0x4u          // invalid internal state for operation
 #define LIGHT_EXTERNAL                  (uint8_t) 0x5u          // error in external library or hardware
+#define LIGHT_STORAGE                   (uint8_t) 0x6u          // error in persistent storage e.g. filesystem, data-flash, eeprom
 
 #define LIGHT_OPT_LOG_LEVEL             "LIGHT_LOG_LEVEL"
 #define LIGHT_OPT_RUN_MODE              "LIGHT_RUN_MODE"
