@@ -105,7 +105,7 @@ static void _log_synchronous(struct light_stream *stream, const uint8_t level, c
         memset(&log_buffer_pri, 0, LIGHT_LOG_BUFFER_PRI_SIZE);
         memset(&log_buffer_sec, 0, LIGHT_LOG_BUFFER_SEC_SIZE);
         uint8_t *message;
-        uint8_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_PRI_SIZE : LIGHT_LOG_BUFFER_SEC_SIZE;
+        uint16_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_PRI_SIZE : LIGHT_LOG_BUFFER_SEC_SIZE;
         snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
         cursor = strncat(log_buffer_sec, log_buffer_pri, max_copy);
        
@@ -119,7 +119,7 @@ static void _log_fast(struct light_stream *stream, const uint8_t level, const ui
         uint8_t log_buffer_pri[LIGHT_LOG_BUFFER_PRI_SIZE];
         uint8_t log_buffer_sec[LIGHT_LOG_BUFFER_SEC_SIZE];
         uint8_t *restrict cursor;
-        uint8_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_SEC_SIZE : LIGHT_LOG_BUFFER_PRI_SIZE;
+        uint16_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_SEC_SIZE : LIGHT_LOG_BUFFER_PRI_SIZE;
         snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
         cursor = strncat(log_buffer_sec, log_buffer_pri, max_copy);
        

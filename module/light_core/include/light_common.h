@@ -110,8 +110,8 @@
 #define LIGHT_MAX_LOG_LEVEL GET_LOG_LEVEL(FILTER_LOG_LEVEL)
 
 // TODO tune these buffer sizes, and make them configurable
-#define LIGHT_LOG_BUFFER_PRI_SIZE 128
-#define LIGHT_LOG_BUFFER_SEC_SIZE 128
+#define LIGHT_LOG_BUFFER_PRI_SIZE 256
+#define LIGHT_LOG_BUFFER_SEC_SIZE 256
 
 // TODO initially the default stream for INFO and lower levels is stdout, with WARN and ERROR going to stderr.
 // but these defaults should probably be made configurable
