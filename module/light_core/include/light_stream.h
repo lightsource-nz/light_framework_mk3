@@ -33,7 +33,7 @@ struct light_stream {
         uint8_t mode;
         struct light_stream_mqueue queue;
         int (*handler)(struct light_stream *, const char *restrict);
-        int (*handler_va)(struct light_stream *, const char *restrict, va_list);
+        int (*handler_va)(struct light_stream *, const char *restrict, ...);
 };
 
 extern struct lobj_type ltype_light_stream;
@@ -60,10 +60,8 @@ extern struct lobj_type ltype_light_stream;
 
 #define Light_Stream_Define(name, mode, handler, handler_va) \
         struct light_stream __static_buffer _ ## name = Light_Stream_Static(#name, mode, handler, handler_va); \
-        struct light_stream __static_stream *name = &_ ## name; \
-        static const struct light_static_object __static_object autoload_## name = Light_Static_Object(&_ ## name, light__autoload_stream)
-
-extern void light__autoload_stream(void *object);
+        struct light_stream __static_stream *name = &_ ## name//; \
+//        static const struct light_static_object __static_object autoload_## name = Light_Static_Object(&_ ## name, light__autoload_stream)
 
 Light_Stream_Declare(light_stream_stdout);
 Light_Stream_Declare(light_stream_stderr);

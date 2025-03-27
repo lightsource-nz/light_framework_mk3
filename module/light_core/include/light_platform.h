@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <light_platform_port.h>
+
 struct lp_timer {
         uint8_t id;
         uint8_t state;

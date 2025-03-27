@@ -44,6 +44,13 @@ static int msg_stdout_va(struct light_stream *stream, const char *restrict forma
 {
         vprintf(format, args);
 }
+static int msg_stdout_v(struct light_stream *stream, const char *restrict format, ...)
+{
+        va_list args;
+        va_start(args, format);
+        msg_stdout_va(stream, format, args);
+        va_end(args);
+}
 static int msg_stderr(struct light_stream *stream, const char *restrict message)
 {
 // TODO add this macro to light_platform
@@ -61,57 +68,75 @@ static int msg_stderr_va(struct light_stream *stream, const char *restrict forma
         vprintf(format, args);
 #endif
 }
-
-// TODO the default message streams' default queueing mode should be configurable
-Light_Stream_Define(light_stream_stdout, LIGHT_MSG_FAST, msg_stdout, msg_stdout_va);
-Light_Stream_Define(light_stream_stderr, LIGHT_MSG_FAST, msg_stderr, msg_stderr_va);
+static int msg_stderr_v(struct light_stream *stream, const char *restrict format, ...)
+{
+        va_list args;
+        va_start(args, format);
+        msg_stderr_va(stream, format, args);
+        va_end(args);
+}
 
 extern int __light_streams_start, __light_streams_end;
 
 static struct light_stream **static_streams;
 static uintptr_t static_stream_count;
 
-void light__autoload_stream(void *object)
-{
-        struct light_stream *stream = (struct light_stream *)object;
-        //printf("loading output stream '%s'", light_stream_get_name(stream));
-        light_stream_init(stream);
-}
-
 // -> by default the standard output streams perform message formatting on the calling thread,
 // then defer writing to the actual underlying output stream to the background I/O thread
-Light_Stream_Define(light_cli_stream_stdout, LIGHT_MSG_FAST, msg_stdout, msg_stdout_va);
-Light_Stream_Define(light_cli_stream_stderr, LIGHT_MSG_FAST, msg_stderr, msg_stderr_va);
+Light_Stream_Define(light_stream_stdout, LIGHT_MSG_FAST, msg_stdout, msg_stdout_v);
+Light_Stream_Define(light_stream_stderr, LIGHT_MSG_FAST, msg_stderr, msg_stderr_v);
 
 static uint8_t streams_defined_count;
 static struct light_stream *streams_defined[LIGHT_STREAM_MAX_STREAMS];
+static thrd_t worker_thread;
 
 static void _find_static_streams()
 {
-        //printf("&__light_streams_start=0x%x, &__light_streams_end=0x%x, sizeof(void *)=0x%x", &__light_streams_start, &__light_streams_end, sizeof(void *));
-        //printf("((_start - _end = 0x%x) / 0x%x)=0x%x",((uintptr_t)&__light_streams_end) - (uintptr_t)&__light_streams_start, sizeof(void *), (((uintptr_t)&__light_streams_end) - ((uintptr_t)&__light_streams_start)) / sizeof(void *));
+        printf("&__light_streams_start=0x%x, &__light_streams_end=0x%x, sizeof(void *)=0x%x\n", &__light_streams_start, &__light_streams_end, sizeof(void *));
+        printf("((_start - _end = 0x%x) / 0x%x)=0x%x\n",((uintptr_t)&__light_streams_end) - (uintptr_t)&__light_streams_start, sizeof(void *), (((uintptr_t)&__light_streams_end) - ((uintptr_t)&__light_streams_start)) / sizeof(void *));
         static_streams = (struct light_stream **) &__light_streams_start;
         static_stream_count = (((uintptr_t)&__light_streams_end) - ((uintptr_t)&__light_streams_start)) / sizeof(void *);
-        //printf("located %d static output streams", static_stream_count);
+        printf("located %d static output streams\n", static_stream_count);
 }
-static void _load_static_objects()
+static void _load_static_streams()
 {
         for(uint16_t i = 0; i < static_stream_count; i++) {
+                if(streams_defined_count >= LIGHT_STREAM_MAX_STREAMS)
+                        break;
                 light_stream_init(static_streams[i]);
         }
-        //printf("loaded %d static streams", static_stream_count);
+        printf("loaded %d static output streams\n", static_stream_count);
 }
+static int worker__handle_background_message_streams(void *arg);
 void light_stream_setup()
 {
         _find_static_streams();
         streams_defined_count = 0;
+        _load_static_streams();
+#ifdef LIGHT_PLATFORM_HAS_C11_THREADS
+        if(0 != thrd_create(&worker_thread, worker__handle_background_message_streams, NULL)) {
+                light_fatal("failed to launch background messaging worker thread");
+        }
+        light_debug("background messaging worker launched");
+#endif
+}
+void light_stream_shutdown()
+{
+        // TODO implement wakeup and shutdown signals for worker thread so it can be terminated hered
+}
 
+static int worker__handle_background_message_streams(void *arg) {
+        while(1) {
+                light_stream_service_message_queues();
+        }
 }
 // -> void light_stream_service_message_queues():
 // -> this routine iterates once over the list of active message streams, processing at most one
 // message from each queue before returning. to exhaustively process all incoming messages, this
 // routine should be called repeatedly. however, if new messages continue arriving, there is no
 // guarantee that the service routine will be able to keep up.
+//   TODO this routine should sleep when all queues are idle, and use a wake-up signal that is
+// triggered by new messages arriving on any queue, rather than busy-waiting on empty queues
 void light_stream_service_message_queues()
 {
         for(uint8_t i = 0; i < streams_defined_count; i++) {
@@ -139,6 +164,7 @@ void light_stream_init(struct light_stream *stream)
                 return;
         }
         streams_defined[streams_defined_count++] = stream;
+        stream->handler_va(stream, "opening message stream '%s'\n", light_stream_get_name(stream));
         light_object_init(&stream->obj_header, &ltype_light_stream);
         light_mutex_init(&stream->lock);
         light_stream_mqueue_init(&stream->queue);
@@ -231,7 +257,8 @@ bool light_stream_mqueue_is_full(struct light_stream_mqueue *queue)
 
 uint8_t light_stream_get_background_logging_mode(struct light_stream *stream)
 {
-        return atomic_load(&stream->mode);
+        //return atomic_load(&stream->mode);
+        return stream->mode;
 }
 void light_stream_set_background_logging_mode(struct light_stream *stream, uint8_t mode)
 {
