@@ -165,7 +165,7 @@ void light_framework_init()
         _load_static_objects();
         framework_loaded = 1;
 }
- 
+static void light_framework_shutdown();
 // begin execution of all loaded applications and tasks
 void light_framework_run(int argc, char *argv[])
 {
@@ -204,8 +204,18 @@ void light_framework_run(int argc, char *argv[])
         }
         light_debug("task %s returned code %s, shutting down",
                                         task->name, light_task_status_string(status));
+        light_framework_shutdown();
 }
 
+static void light_framework_shutdown()
+{
+        light_module_event_send_to_all(LF_EVENT_APP_SHUTDOWN, NULL);
+        // reverse iterate over the list which stores the order in which modules were loaded,
+        // ensuring that the unload event is received by modules in reverse dependency order
+        for(uint16_t i = mods_active_count; i > 0; i--) {
+                light_module_event_send(mods_active[i - 1], LF_EVENT_MODULE_UNLOAD, NULL);
+        }
+}
 void light_framework_load_application(struct light_application *app)
 {
         if(!framework_loading)

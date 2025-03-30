@@ -166,8 +166,9 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
                          ref = NULL;
                 critical_section_exit(&reg->mutex);
 #else
-                uint32_t old = obj->ref_count;
+                uint32_t old;
                 do {
+                        old = obj->ref_count;
                         if(old == 0 ) {
                                 ref = NULL;
                                 break;
