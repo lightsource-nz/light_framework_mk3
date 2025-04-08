@@ -89,6 +89,8 @@ Light_Stream_Define(light_stream_stderr, LIGHT_MSG_FAST, msg_stderr, msg_stderr_
 static uint8_t streams_defined_count;
 static struct light_stream *streams_defined[LIGHT_STREAM_MAX_STREAMS];
 static thrd_t worker_thread;
+static cnd_t cnd_worker_online;
+static uint8_t flag_worker_online;
 
 static void _find_static_streams()
 {
@@ -110,22 +112,32 @@ static void _load_static_streams()
 static int worker__handle_background_message_streams(void *arg);
 void light_stream_setup()
 {
+        flag_worker_online = 0;
         _find_static_streams();
         streams_defined_count = 0;
         _load_static_streams();
+        
 #ifdef LIGHT_PLATFORM_HAS_C11_THREADS
+        mtx_t mutex;
+        light_mutex_init(&mutex);
+        cnd_init(&cnd_worker_online);
         if(0 != thrd_create(&worker_thread, worker__handle_background_message_streams, NULL)) {
                 light_fatal("failed to launch background messaging worker thread");
         }
+        cnd_wait(&cnd_worker_online, &mutex);
         light_debug("background messaging worker launched");
 #endif
 }
 void light_stream_shutdown()
 {
-        // TODO implement wakeup and shutdown signals for worker thread so it can be terminated hered
+        // TODO implement wakeup and shutdown signals for worker thread so it can be terminated here
 }
 
-static int worker__handle_background_message_streams(void *arg) {
+static int worker__handle_background_message_streams(void *arg)
+{
+        atomic_store(&flag_worker_online, true);
+        atomic_thread_fence(flag_worker_online);
+        cnd_broadcast(&cnd_worker_online);
         while(1) {
                 light_stream_service_message_queues();
         }
@@ -218,6 +230,8 @@ void light_stream_mqueue_add_faster(struct light_stream_mqueue *queue, const uin
 // caller must hold the lock on queue before calling!
 static struct light_message *mqueue_take(struct light_stream_mqueue *queue)
 {
+        // FIXME I'm certain this heap allocation is totally redundant, but removing
+        // it entails changing the API, so I'm just leaving a note for now
         struct light_message *message = light_alloc(sizeof(struct light_message));
         uint8_t message_idx = (LIGHT_STREAM_MQUEUE_DEPTH + (queue->head - queue->count)) % LIGHT_STREAM_MQUEUE_DEPTH;
 
