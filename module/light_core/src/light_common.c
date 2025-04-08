@@ -87,7 +87,13 @@ void light_log_internal(struct light_stream *stream, const uint8_t level, const 
         va_list args;
         va_start(args, format);
         if(light_platform_task_is_main()) {
-                _log_synchronous(stream, level, func, format, args);
+                //   TODO add options controlling main-thread logging policy.
+                // default behaviour sends all log messages to the same background queue,
+                // ensuring the best preservation of time-ordering in the output log
+                
+                // _log_synchronous(stream, level, func, format, args);
+
+                _log_fast(stream, level, func, format, args);
         } else switch(light_stream_get_background_logging_mode(stream)) {
                 case LIGHT_MSG_FAST:
                 _log_fast(stream, level, func, format, args);
@@ -118,6 +124,8 @@ static void _log_fast(struct light_stream *stream, const uint8_t level, const ui
 {
         uint8_t log_buffer_pri[LIGHT_LOG_BUFFER_PRI_SIZE];
         uint8_t log_buffer_sec[LIGHT_LOG_BUFFER_SEC_SIZE];
+        memset(&log_buffer_pri, 0, sizeof(log_buffer_pri));
+        memset(&log_buffer_sec, 0, sizeof(log_buffer_sec));
         uint8_t *restrict cursor;
         uint16_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_SEC_SIZE : LIGHT_LOG_BUFFER_PRI_SIZE;
         snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
