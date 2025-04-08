@@ -1,3 +1,6 @@
 [submodule "cmake/light_presets"]
 	path = cmake/light_presets
 	url = https://github.com/lightsource-nz/light_presets.git
+[submodule "cmake/sanitizers"]
+	path = cmake/sanitizers
+	url = git@github.com:arsenm/sanitizers-cmake.git

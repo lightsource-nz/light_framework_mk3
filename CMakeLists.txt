@@ -8,6 +8,8 @@ include(light_platform)
 
 project(light_framework_mk3 C CXX ASM)
 
+find_package(Sanitizers)
+
 # modules
 add_subdirectory(module/light_core)
 add_subdirectory(module/light_core_arch_arm32_m)
