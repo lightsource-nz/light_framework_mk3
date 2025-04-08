@@ -161,6 +161,10 @@ uint32_t light_platform_get_time_since_init()
 {
         return light_platform_get_absolute_time_ms() - system_time_at_init;
 }
+void light_platform_sleep_ms(uint32_t period)
+{
+        usleep(period * 1000);
+}
 static uint8_t *_do_getenv(const uint8_t *name)
 {
 #ifdef __GNUC__
