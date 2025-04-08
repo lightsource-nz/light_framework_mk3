@@ -3,6 +3,7 @@ if (NOT TARGET _light_init_marker)
         get_filename_component(LIGHT_PATH "${LIGHT_PATH}" REALPATH BASE_DIR "${CMAKE_SOURCE_DIR}")
 
         list(APPEND CMAKE_MODULE_PATH ${LIGHT_PATH}/cmake)
+        set(CMAKE_MODULE_PATH "${LIGHT_PATH}/cmake" ${CMAKE_MODULE_PATH})
         set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/sanitizers/cmake" ${CMAKE_MODULE_PATH})
         include(util/light_var)
         include(util/light_log)
