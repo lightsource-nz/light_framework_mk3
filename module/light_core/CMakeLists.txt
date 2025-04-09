@@ -20,9 +20,6 @@ target_sources(
         ${CMAKE_CURRENT_LIST_DIR}/src/list.c
         ${CMAKE_CURRENT_LIST_DIR}/src/stream.c
 )
-if(LIGHT_CORE_ENABLE_SANITIZERS)
-        add_sanitizers(light_core)
-endif()
 
 if(LIGHT_SYSTEM STREQUAL PICO_SDK)
         target_link_libraries(
