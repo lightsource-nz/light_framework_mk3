@@ -19,7 +19,17 @@ target_sources(
 target_link_libraries(
         light_core_arch_host_os
         INTERFACE
-        ${CMAKE_CURRENT_LIST_DIR}/objects.host_os.ld
-        rt
         light_core
 )
+target_link_options(
+        light_core_arch_host_os
+        INTERFACE
+        "-Wl,-T,${CMAKE_CURRENT_LIST_DIR}/objects.host_os.ld"
+)
+if(NOT WIN32)
+        target_link_libraries(
+                light_core_arch_host_os
+                INTERFACE
+                rt
+        )
+endif()

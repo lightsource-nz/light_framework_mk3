@@ -17,6 +17,11 @@
 #include <threads.h>
 
 #include <unistd.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <time.h>
+#else
 #ifndef _POSIX_TIMERS
         #error "light framework native application host requires POSIX timer support"
 #endif
@@ -24,6 +29,7 @@
 #include <signal.h>
 #include <time.h>
 #define LIGHT_PLATFORM_TIMER_SIGNAL     SIGRTMIN
+#endif
 
 #define LIGHT_PLATFORM_MAX_TIMERS       8
 #define _INSTANCE_INVALID               16
@@ -33,24 +39,29 @@
 
 static struct lp_timer *timer_instance[LIGHT_PLATFORM_MAX_TIMERS];
 static uint8_t timer_instance_count = 0;
+#ifndef _WIN32
 static timer_t system_timer_id;
+#endif
 
 static uint8_t _get_free_timer_instance();
+#ifndef _WIN32
 static void _light_platform_timer_signal_handler(int sig, siginfo_t *si, void *uc);
+#endif
 static uint32_t system_time_at_init;
 
 thrd_t main_task;
 
 void light_platform_init()
 {
+        system_time_at_init = light_platform_get_absolute_time_ms();
+
+        main_task = thrd_current();
+
+#ifndef _WIN32
         struct sigevent event;
         struct sigaction action;
         int status;
 
-        system_time_at_init = light_platform_get_absolute_time_ms();
-
-        main_task = thrd_current();
-        
         action.sa_flags = SA_SIGINFO;
         action.sa_sigaction = _light_platform_timer_signal_handler;
 
@@ -58,10 +69,11 @@ void light_platform_init()
         if ((status = sigaction(LIGHT_PLATFORM_TIMER_SIGNAL, &action, NULL)) != 0){
                 light_fatal("could not register system timer signal: sigaction() failed with return code [%d]", status);
         }
-        
+
         if((status = timer_create(CLOCK_MONOTONIC, NULL, &system_timer_id)) != 0) {
                 light_fatal("could not create system timer: timer_create() failed with return code [%d]", status);
         }
+#endif
 }
 light_task_t light_platform_get_task()
 {
@@ -79,6 +91,7 @@ static uint8_t _get_free_timer_instance()
         }
         return _INSTANCE_INVALID;
 }
+#ifndef _WIN32
 static void _light_platform_update_timer(struct lp_timer *timer, uint32_t time);
 static void _light_platform_timer_signal_handler(int sig, siginfo_t *si, void *uc)
 {
@@ -98,6 +111,7 @@ static void _light_platform_update_timer(struct lp_timer *timer, uint32_t time)
                 }
         }
 }
+#endif
 struct lp_timer *light_platform_timer_new()
 {
         struct lp_timer *t = light_alloc(sizeof(*t));
@@ -151,11 +165,15 @@ uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
 }
 uint32_t light_platform_get_absolute_time_ms()
 {
+#ifdef _WIN32
+        return (uint32_t) GetTickCount64();
+#else
         struct timespec ts;
         if(clock_gettime(CLOCK_BOOTTIME, &ts) == -1) {
                 return -1;
         }
         return (ts.tv_sec * 1000) + (ts.tv_nsec / 1000);
+#endif
 }
 uint32_t light_platform_get_time_since_init()
 {
@@ -167,7 +185,7 @@ void light_platform_sleep_ms(uint32_t period)
 }
 static uint8_t *_do_getenv(const uint8_t *name)
 {
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(_WIN32)
         return secure_getenv(name);
 #else
         return getenv(name);
@@ -179,13 +197,28 @@ uint8_t *light_platform_getenv(const uint8_t *name)
 }
 uint8_t *light_platform_get_user_home()
 {
+#ifdef _WIN32
+        uint8_t *home = _do_getenv("HOME");
+        return home ? home : _do_getenv("USERPROFILE");
+#else
         return _do_getenv("HOME");
+#endif
 }
 uint8_t *light_platform_get_user_name()
 {
+#ifdef _WIN32
+        uint8_t *name = _do_getenv("USER");
+        return name ? name : _do_getenv("USERNAME");
+#else
         return _do_getenv("USER");
+#endif
 }
 uint16_t light_platform_get_user_id()
 {
+#ifdef _WIN32
+        // no POSIX UID concept on Windows
+        return 0;
+#else
         return getuid();
+#endif
 }

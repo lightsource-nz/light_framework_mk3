@@ -1,20 +1,20 @@
 SECTIONS
 {
-        .light.stream :
+        .light.stream ALIGN(4096) :
         {
                 . = ALIGN(4);
                 __light_streams_start = .;
                 KEEP(*(.light.static_stream))
                 __light_streams_end = .;
         }
-        .light.module :
+        .light.module ALIGN(4096) :
         {
                 . = ALIGN(4);
                 __light_modules_start = .;
                 KEEP(*(.light.static_module))
                 __light_modules_end = .;
         }
-        .light.static :
+        .light.static ALIGN(4096) :
         {
                 . = ALIGN(4);
                 __light_statics_start = .;
@@ -22,3 +22,4 @@ SECTIONS
                 __light_statics_end = .;
         }
 }
+INSERT AFTER .text;

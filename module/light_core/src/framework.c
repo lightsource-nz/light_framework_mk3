@@ -215,6 +215,7 @@ static void light_framework_shutdown()
         for(uint16_t i = mods_active_count; i > 0; i--) {
                 light_module_event_send(mods_active[i - 1], LF_EVENT_MODULE_UNLOAD, NULL);
         }
+        light_stream_shutdown();
 }
 void light_framework_load_application(struct light_application *app)
 {

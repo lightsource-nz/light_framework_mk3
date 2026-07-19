@@ -54,7 +54,7 @@ static const uint8_t *cli_command_get_full_name(struct light_command *command)
                 strncat(cursor, light_cli_command_get_short_name(stack[i]), end - cursor);
                 if(i > 0) strncat(cursor, " ", end - cursor);
         }
-        out = light_alloc(strlen(buffer));
+        out = light_alloc(strlen(buffer) + 1);
         strcpy(out, buffer);
         return out;
 }
@@ -105,7 +105,17 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         struct cli_token token[MAX_TOKENS];
         // token zero is a special case where we extract the command name from the path
         token[0].type = TOKEN_CMDARG;
-        token[0].value = basename(argv[0]);
+        uint8_t *cmd_name = (uint8_t *)basename(argv[0]);
+#ifdef _WIN32
+        // strip the .exe extension so the derived command name matches registered
+        // command names (e.g. "crush.exe" -> "crush"), as it would on POSIX platforms
+        // where executables carry no extension
+        size_t cmd_name_len = strlen((char *)cmd_name);
+        if(cmd_name_len > 4 && strcasecmp((char *)cmd_name + cmd_name_len - 4, ".exe") == 0) {
+                cmd_name[cmd_name_len - 4] = '\0';
+        }
+#endif
+        token[0].value = cmd_name;
         for(int i = 1; i < argc && i < MAX_TOKENS; i++) {
                 if(argv[i][0] == '-') {
                         if(argv[i][1] == '-') {

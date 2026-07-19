@@ -1,9 +1,8 @@
 #ifndef _LIGHT_STREAM_H
 #define _LIGHT_STREAM_H
 
-#ifdef __GNUC__
-#define __stream_va_list_type __gnuc_va_list
-#endif
+#include <stdarg.h>
+
 // only the 'fast' and 'faster' message types are handled by this facility
 #define LIGHT_MSG_FAST                    0
 #define LIGHT_MSG_FASTER                  1
@@ -14,7 +13,7 @@
 struct light_message {
         uint8_t flags;
         const uint8_t *text;
-        __stream_va_list_type args;
+        va_list args;
 };
 
 // .message[] is treated as a circular buffer, collisions are avoided by

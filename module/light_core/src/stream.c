@@ -91,6 +91,7 @@ static struct light_stream *streams_defined[LIGHT_STREAM_MAX_STREAMS];
 static thrd_t worker_thread;
 static cnd_t cnd_worker_online;
 static uint8_t flag_worker_online;
+static atomic_bool worker_should_stop;
 
 static void _find_static_streams()
 {
@@ -130,7 +131,10 @@ void light_stream_setup()
 }
 void light_stream_shutdown()
 {
-        // TODO implement wakeup and shutdown signals for worker thread so it can be terminated here
+#ifdef LIGHT_PLATFORM_HAS_C11_THREADS
+        atomic_store(&worker_should_stop, true);
+        thrd_join(worker_thread, NULL);
+#endif
 }
 
 static int worker__handle_background_message_streams(void *arg)
@@ -138,9 +142,10 @@ static int worker__handle_background_message_streams(void *arg)
         atomic_store(&flag_worker_online, true);
         atomic_thread_fence(flag_worker_online);
         cnd_broadcast(&cnd_worker_online);
-        while(1) {
+        while(!atomic_load(&worker_should_stop)) {
                 light_stream_service_message_queues();
         }
+        return 0;
 }
 // -> void light_stream_service_message_queues():
 // -> this routine iterates once over the list of active message streams, processing at most one
@@ -220,11 +225,9 @@ void light_stream_mqueue_add_faster(struct light_stream_mqueue *queue, const uin
         uint8_t index = queue->head;
         queue->count++;
         queue->head = (queue->head + 1) % LIGHT_STREAM_MQUEUE_DEPTH;
-        queue->message[index] = (struct light_message) {
-                .flags = LIGHT_MSG_FASTER,
-                .text = text,
-                .args = *args
-        };
+        queue->message[index].flags = LIGHT_MSG_FASTER;
+        queue->message[index].text = text;
+        va_copy(queue->message[index].args, args);
         light_mutex_do_unlock(&queue->lock);
 }
 // caller must hold the lock on queue before calling!
@@ -237,6 +240,7 @@ static struct light_message *mqueue_take(struct light_stream_mqueue *queue)
 
         memcpy(message, &queue->message[message_idx], sizeof(struct light_message));
         queue->count--;
+        light_condition_signal(&queue->write_ready);
         return message;
 }
 struct light_message *light_stream_mqueue_get(struct light_stream_mqueue *queue)
@@ -316,7 +320,7 @@ void light_stream_message_vf_fast(struct light_stream *stream, const uint8_t *fo
 #else
         uint8_t buffer[LIGHT_STREAM_MAX_MSG_LENGTH];
         vsnprintf(&buffer, LIGHT_STREAM_MAX_MSG_LENGTH, format, args);
-        message = light_alloc(strlen(&buffer));
+        message = light_alloc(strlen(&buffer) + 1);
         strcpy(message, &buffer);
 #endif
         light_stream_mqueue_add_fast(&stream->queue, message);
