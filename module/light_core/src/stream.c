@@ -137,12 +137,22 @@ void light_stream_shutdown()
 #endif
 }
 
+static bool _all_stream_queues_empty()
+{
+        for(uint8_t i = 0; i < streams_defined_count; i++) {
+                if(!light_stream_mqueue_is_empty(light_stream_get_queue(streams_defined[i])))
+                        return false;
+        }
+        return true;
+}
 static int worker__handle_background_message_streams(void *arg)
 {
         atomic_store(&flag_worker_online, true);
         atomic_thread_fence(flag_worker_online);
         cnd_broadcast(&cnd_worker_online);
-        while(!atomic_load(&worker_should_stop)) {
+        // keep servicing queues past the stop signal until they're fully drained, otherwise
+        // messages queued just before shutdown (e.g. module unload logging) get lost
+        while(!atomic_load(&worker_should_stop) || !_all_stream_queues_empty()) {
                 light_stream_service_message_queues();
         }
         return 0;
