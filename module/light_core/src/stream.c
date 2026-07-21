@@ -89,8 +89,7 @@ Light_Stream_Define(light_stream_stderr, LIGHT_MSG_FAST, msg_stderr, msg_stderr_
 static uint8_t streams_defined_count;
 static struct light_stream *streams_defined[LIGHT_STREAM_MAX_STREAMS];
 static thrd_t worker_thread;
-static cnd_t cnd_worker_online;
-static uint8_t flag_worker_online;
+static atomic_bool flag_worker_online;
 static atomic_bool worker_should_stop;
 
 static void _find_static_streams()
@@ -113,19 +112,23 @@ static void _load_static_streams()
 static int worker__handle_background_message_streams(void *arg);
 void light_stream_setup()
 {
-        flag_worker_online = 0;
+        atomic_store(&flag_worker_online, false);
         _find_static_streams();
         streams_defined_count = 0;
         _load_static_streams();
-        
+
 #ifdef LIGHT_PLATFORM_HAS_C11_THREADS
-        mtx_t mutex;
-        light_mutex_init(&mutex);
-        cnd_init(&cnd_worker_online);
         if(0 != thrd_create(&worker_thread, worker__handle_background_message_streams, NULL)) {
                 light_fatal("failed to launch background messaging worker thread");
         }
-        cnd_wait(&cnd_worker_online, &mutex);
+        // wait for the worker to signal it's up. this is a one-time, sub-millisecond handshake,
+        // so a plain atomic poll is simpler than a mutex+condvar rendezvous here -- and since
+        // there's no signal to miss, it sidesteps that whole class of bug entirely
+        // (thrd_yield() isn't implemented by this platform's C11 threads shim, hence thrd_sleep())
+        struct timespec poll_interval = { .tv_sec = 0, .tv_nsec = 100000 };
+        while(!atomic_load(&flag_worker_online)) {
+                thrd_sleep(&poll_interval, NULL);
+        }
         light_debug("background messaging worker launched");
 #endif
 }
@@ -148,8 +151,6 @@ static bool _all_stream_queues_empty()
 static int worker__handle_background_message_streams(void *arg)
 {
         atomic_store(&flag_worker_online, true);
-        atomic_thread_fence(flag_worker_online);
-        cnd_broadcast(&cnd_worker_online);
         // keep servicing queues past the stop signal until they're fully drained, otherwise
         // messages queued just before shutdown (e.g. module unload logging) get lost
         while(!atomic_load(&worker_should_stop) || !_all_stream_queues_empty()) {
