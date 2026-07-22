@@ -1,7 +1,9 @@
 #ifndef _LIGHT_CLI_H
 #define _LIGHT_CLI_H
 
+#if LIGHT_PLATFORM_HAS_C11_THREADS
 #include <threads.h>
+#endif
 #include <stdarg.h>
 
 #define LIGHT_CLI_MAX_REF_DEPTH                 8

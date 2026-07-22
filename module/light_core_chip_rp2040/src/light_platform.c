@@ -1,7 +1,4 @@
-#include <light_platform.h>
-#include <light_core_port.h>
-#include <light_common.h>
-#include <light_object.h>
+#include <light.h>
 #if(LIGHT_SYSTEM != SYSTEM_PICO_SDK)
         #error "this file should only be compiled when Pico SDK support is enabled"
 #endif
@@ -17,9 +14,24 @@
 static struct lp_timer *timer_instance[LIGHT_PLATFORM_MAX_TIMERS];
 static uint8_t timer_instance_count = 0;
 
+light_task_t main_task;
+static uint32_t system_time_at_init;
+
 void light_platform_init()
 {
         alarm_pool_init_default();
+        // core 0 is always the entry point on RP2040, so it's simply hardcoded as "main" here
+        // rather than tracked via any actual task/thread handle (there is no OS scheduler)
+        main_task = 0;
+        system_time_at_init = light_platform_get_absolute_time_ms();
+}
+light_task_t light_platform_get_task()
+{
+        return get_core_num();
+}
+light_task_t light_platform_get_main_task()
+{
+        return main_task;
 }
 static uint8_t _get_free_timer_instance()
 {
@@ -80,9 +92,13 @@ uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
                 return 0;
         }
 }
-uint32_t light_platform_get_time_since_init()
+uint32_t light_platform_get_absolute_time_ms()
 {
         return to_ms_since_boot(get_absolute_time());
+}
+uint32_t light_platform_get_time_since_init()
+{
+        return light_platform_get_absolute_time_ms() - system_time_at_init;
 }
 
 void light_platform_sleep_ms(uint32_t period)

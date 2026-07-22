@@ -14,7 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifndef _STDC_NO_THREADS_
+#if LIGHT_PLATFORM_HAS_C11_THREADS
 #include <threads.h>
 #endif
 
@@ -88,9 +88,11 @@ Light_Stream_Define(light_stream_stderr, LIGHT_MSG_FAST, msg_stderr, msg_stderr_
 
 static uint8_t streams_defined_count;
 static struct light_stream *streams_defined[LIGHT_STREAM_MAX_STREAMS];
+#if LIGHT_PLATFORM_HAS_C11_THREADS
 static thrd_t worker_thread;
 static atomic_bool flag_worker_online;
 static atomic_bool worker_should_stop;
+#endif
 
 static void _find_static_streams()
 {
@@ -109,15 +111,21 @@ static void _load_static_streams()
         }
         printf("loaded %d static output streams\n", static_stream_count);
 }
+#if LIGHT_PLATFORM_HAS_C11_THREADS
 static int worker__handle_background_message_streams(void *arg);
+#elif LIGHT_PLATFORM_HAS_MULTICORE_WORKER
+static void worker__handle_background_message_streams_core1(void);
+#else
+static uint8_t worker__service_message_queues_task(struct light_application *app);
+#endif
 void light_stream_setup()
 {
-        atomic_store(&flag_worker_online, false);
         _find_static_streams();
         streams_defined_count = 0;
         _load_static_streams();
 
-#ifdef LIGHT_PLATFORM_HAS_C11_THREADS
+#if LIGHT_PLATFORM_HAS_C11_THREADS
+        atomic_store(&flag_worker_online, false);
         if(0 != thrd_create(&worker_thread, worker__handle_background_message_streams, NULL)) {
                 light_fatal("failed to launch background messaging worker thread");
         }
@@ -130,16 +138,29 @@ void light_stream_setup()
                 thrd_sleep(&poll_interval, NULL);
         }
         light_debug("background messaging worker launched");
+#elif LIGHT_PLATFORM_HAS_MULTICORE_WORKER
+        // no OS threads on bare-metal RP2040, but there is a second physical CPU core --
+        // run the worker there instead
+        light_core_port_worker_launch(worker__handle_background_message_streams_core1);
+        light_debug("background messaging worker launched on core 1");
+#else
+        // single-core bare metal with no worker of any kind: drain the queues from the main
+        // task loop instead (see framework.c's periodic task scheduler)
+        light_module_register_periodic_task(&light_core, "stream_service", worker__service_message_queues_task);
 #endif
 }
 void light_stream_shutdown()
 {
-#ifdef LIGHT_PLATFORM_HAS_C11_THREADS
+#if LIGHT_PLATFORM_HAS_C11_THREADS
         atomic_store(&worker_should_stop, true);
         thrd_join(worker_thread, NULL);
+#elif LIGHT_PLATFORM_HAS_MULTICORE_WORKER
+        light_core_port_worker_signal_stop();
+        light_core_port_worker_join();
 #endif
 }
 
+#if LIGHT_PLATFORM_HAS_C11_THREADS || LIGHT_PLATFORM_HAS_MULTICORE_WORKER
 static bool _all_stream_queues_empty()
 {
         for(uint8_t i = 0; i < streams_defined_count; i++) {
@@ -148,6 +169,8 @@ static bool _all_stream_queues_empty()
         }
         return true;
 }
+#endif
+#if LIGHT_PLATFORM_HAS_C11_THREADS
 static int worker__handle_background_message_streams(void *arg)
 {
         atomic_store(&flag_worker_online, true);
@@ -158,6 +181,23 @@ static int worker__handle_background_message_streams(void *arg)
         }
         return 0;
 }
+#elif LIGHT_PLATFORM_HAS_MULTICORE_WORKER
+static void worker__handle_background_message_streams_core1(void)
+{
+        // keep servicing queues past the stop signal until they're fully drained, otherwise
+        // messages queued just before shutdown (e.g. module unload logging) get lost
+        while(!light_core_port_worker_stop_requested() || !_all_stream_queues_empty()) {
+                light_stream_service_message_queues();
+        }
+        light_core_port_worker_signal_finished();
+}
+#else
+static uint8_t worker__service_message_queues_task(struct light_application *app)
+{
+        light_stream_service_message_queues();
+        return LF_STATUS_RUN;
+}
+#endif
 // -> void light_stream_service_message_queues():
 // -> this routine iterates once over the list of active message streams, processing at most one
 // message from each queue before returning. to exhaustively process all incoming messages, this
@@ -277,21 +317,32 @@ struct light_message *light_stream_mqueue_try_get(struct light_stream_mqueue *qu
 }
 bool light_stream_mqueue_is_empty(struct light_stream_mqueue *queue)
 {
+#if LIGHT_PLATFORM_HAS_C11_THREADS
         return (atomic_load(&queue->count) == 0);
+#else
+        return (queue->count == 0);
+#endif
 }
 bool light_stream_mqueue_is_full(struct light_stream_mqueue *queue)
 {
+#if LIGHT_PLATFORM_HAS_C11_THREADS
         return (atomic_load(&queue->count) >= LIGHT_STREAM_MQUEUE_DEPTH);
+#else
+        return (queue->count >= LIGHT_STREAM_MQUEUE_DEPTH);
+#endif
 }
 
 uint8_t light_stream_get_background_logging_mode(struct light_stream *stream)
 {
-        //return atomic_load(&stream->mode);
         return stream->mode;
 }
 void light_stream_set_background_logging_mode(struct light_stream *stream, uint8_t mode)
 {
+#if LIGHT_PLATFORM_HAS_C11_THREADS
         atomic_store(&stream->mode, mode);
+#else
+        stream->mode = mode;
+#endif
 }
 void light_stream_message_sync(struct light_stream *stream, const uint8_t *message)
 {

@@ -76,7 +76,11 @@ extern void light_stream_service_message_queues();
 extern void light_stream_init(struct light_stream *stream);
 static inline uint8_t light_stream_get_mode(struct light_stream *stream)
 {
+#ifdef LIGHT_PLATFORM_HAS_C11_THREADS
         return atomic_load(&stream->mode);
+#else
+        return stream->mode;
+#endif
 }
 static inline const uint8_t *light_stream_get_name(struct light_stream *stream)
 {

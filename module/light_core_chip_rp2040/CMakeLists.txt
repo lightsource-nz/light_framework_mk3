@@ -20,8 +20,13 @@ target_sources(
 target_link_libraries(
         light_core_chip_rp2040
         INTERFACE
-        ${CMAKE_CURRENT_LIST_DIR}/objects.rp2040.ld
         light_core
         pico_stdlib
         pico_sync
+        pico_multicore
+)
+target_link_options(
+        light_core_chip_rp2040
+        INTERFACE
+        "-Wl,-T,${CMAKE_CURRENT_LIST_DIR}/objects.rp2040.ld"
 )

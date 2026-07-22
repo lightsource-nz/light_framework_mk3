@@ -6,35 +6,73 @@
  *  created june 2024
  * 
  */
-#include <light_core_port.h>
-#include <light_common.h>
-#include <light_object.h>
+#include <light.h>
 
-#include <pico/critical_section.h>
+#include <pico/multicore.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+
+static volatile bool _worker_stop_requested;
+static volatile bool _worker_finished;
+
+void light_core_port_worker_launch(void (*worker_fn)(void))
+{
+        _worker_stop_requested = false;
+        _worker_finished = false;
+        multicore_launch_core1(worker_fn);
+}
+void light_core_port_worker_signal_stop(void)
+{
+        _worker_stop_requested = true;
+}
+bool light_core_port_worker_stop_requested(void)
+{
+        return _worker_stop_requested;
+}
+void light_core_port_worker_signal_finished(void)
+{
+        _worker_finished = true;
+}
+void light_core_port_worker_join(void)
+{
+        while(!_worker_finished) {
+                tight_loop_contents();
+        }
+}
 
 static bool _registry_loaded = false;
 static struct light_object_registry _registry_default;
 
 static void _registry_critical_enter(struct light_object_registry *reg)
 {
-        critical_section_enter_blocking(reg->mutex);
+        critical_section_enter_blocking(&reg->mutex);
 }
 static void _registry_critical_exit(struct light_object_registry *reg)
 {
-        critical_section_exit(reg->mutex);
+        critical_section_exit(&reg->mutex);
 }
 
 void light_core_impl_setup()
 {
         if(!_registry_loaded) {
                 _registry_loaded = true;
-                critical_section_init(_registry_default.mutex);
+                critical_section_init(&_registry_default.mutex);
                 _registry_default.alloc = light_alloc;
                 _registry_default.free = light_free;
         }
+}
+// no OS scheduler to block on here -- see light_condition_t in light_core_port.h for why a
+// spin-poll on a plain flag is safe. must be called with 'mutex' already held, per the
+// light_condition_wait() contract used throughout light_core/src/stream.c
+void light_core_port_condition_wait(light_condition_t *cond, light_mutex_t *mutex)
+{
+        light_mutex_do_unlock(mutex);
+        while(!*cond) {
+                tight_loop_contents();
+        }
+        *cond = false;
+        light_mutex_do_lock(mutex);
 }
 static struct light_object_registry *_get_default_registry()
 {
@@ -149,20 +187,20 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
 {
         struct light_object *ref = obj;
         if(obj) {
-                critical_section_enter_blocking(reg->mutex);
+                critical_section_enter_blocking(&reg->mutex);
                 if(obj->ref_count > 0)
                         obj->ref_count++;
                 else
                          ref = NULL;
-                critical_section_exit(reg->mutex);
+                critical_section_exit(&reg->mutex);
         }
         return ref;
 }
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-        critical_section_enter_blocking(reg->mutex);
+        critical_section_enter_blocking(&reg->mutex);
         obj->ref_count--;
-        critical_section_exit(reg->mutex);
+        critical_section_exit(&reg->mutex);
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,

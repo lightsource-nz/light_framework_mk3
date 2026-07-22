@@ -18,7 +18,11 @@ add_subdirectory(module/light_core_arch_arm32_m)
 add_subdirectory(module/light_core_arch_host_os)
 add_subdirectory(module/light_core_chip_rp2040)
 add_subdirectory(module/light_core_board_pico_hostmode)
-add_subdirectory(module/light_cli)
+# light_cli currently targets terminal-based programs (argv parsing, POSIX-flavored I/O); only
+# built for HOST for now
+if(LIGHT_PLATFORM STREQUAL HOST)
+        add_subdirectory(module/light_cli)
+endif()
 
 if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
         light_load_pico_sdk_support()
@@ -30,6 +34,8 @@ add_subdirectory(platform/chip)
 add_subdirectory(platform/board)
 
 # tests
-add_subdirectory(test/demo_cli)
+if(LIGHT_PLATFORM STREQUAL HOST)
+        add_subdirectory(test/demo_cli)
+endif()
 
 light_select_board(${LIGHT_BOARD})

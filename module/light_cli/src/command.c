@@ -10,7 +10,6 @@
 #include <light_cli.h>
 #include <stdio.h>
 #include <string.h>
-#include <libgen.h>
 
 #include "cli_private.h"
 
@@ -56,6 +55,19 @@ static const uint8_t *cli_command_get_full_name(struct light_command *command)
         }
         out = light_alloc(strlen(buffer) + 1);
         strcpy(out, buffer);
+        return out;
+}
+// minimal portable replacement for POSIX basename() (<libgen.h> isn't available on bare-metal
+// ARM newlib): returns a pointer to the last path component, or the whole string if it
+// contains no separator. unlike POSIX basename(), never modifies or reallocates 'path'
+static uint8_t *_cli_basename(uint8_t *path)
+{
+        if(!path) return (uint8_t *)"";
+        uint8_t *out = path;
+        for(uint8_t *p = path; *p; p++) {
+                if(*p == '/' || *p == '\\')
+                        out = p + 1;
+        }
         return out;
 }
 void light_cli__autoload_command(void *object)
@@ -105,7 +117,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         struct cli_token token[MAX_TOKENS];
         // token zero is a special case where we extract the command name from the path
         token[0].type = TOKEN_CMDARG;
-        uint8_t *cmd_name = (uint8_t *)basename(argv[0]);
+        uint8_t *cmd_name = _cli_basename((uint8_t *)argv[0]);
 #ifdef _WIN32
         // strip the .exe extension so the derived command name matches registered
         // command names (e.g. "crush.exe" -> "crush"), as it would on POSIX platforms
