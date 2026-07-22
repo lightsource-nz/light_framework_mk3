@@ -12,12 +12,16 @@ function(light_load_pico_sdk_support)
         light_declare(PICO_BOARD)
         light_declare(PICO_SDK_PATH)
         
+        set(_light_pico_host_mingw_workaround OFF)
         #   TODO there are now a range of possible values for PICO_PLATFORM, and this
         # variable must be set early in the load before LIGHT_CHIP is selected
         if(LIGHT_PLATFORM STREQUAL TARGET)
                 light_set(PICO_PLATFORM rp2040)
         elseif(LIGHT_PLATFORM STREQUAL HOST)
                 light_set(PICO_PLATFORM host)
+                if(MINGW)
+                        set(_light_pico_host_mingw_workaround ON)
+                endif()
         endif()
 
         if(DEFINED ENV{PICO_SDK_PATH} AND (NOT PICO_SDK_PATH))
@@ -36,4 +40,16 @@ function(light_load_pico_sdk_support)
 
         include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
         pico_sdk_init()
+
+        if(_light_pico_host_mingw_workaround)
+                # MinGW's <time.h> only exposes localtime_r() (used by pico-sdk's
+                # src/common/pico_util/datetime.c) when _POSIX_C_SOURCE is defined. pico_util
+                # is an INTERFACE library whose sources compile fresh into whichever target
+                # actually links it, following the dependency graph rather than the directory
+                # tree, so this must be a target_compile_definitions() on pico_util itself to
+                # reach every consumer -- a directory-scoped add_compile_definitions() here
+                # would only reach targets defined under light_framework's own subtree, missing
+                # sibling subtrees like a consuming project's own demo/test executables
+                target_compile_definitions(pico_util INTERFACE _POSIX_C_SOURCE=200809L)
+        endif()
 endfunction()

@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.18)
 
 include(${CMAKE_CURRENT_LIST_DIR}/light_init.cmake)
+# must run before the LIGHT_SYSTEM check below: this is where LIGHT_SYSTEM (and LIGHT_PLATFORM,
+# LIGHT_BOARD) get their defaults established, so checking them any earlier sees an empty value
+include(light_platform)
 if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
         include(pico_sdk)
 endif()
-include(light_platform)
 
 project(light_framework_mk3 C CXX ASM)
 

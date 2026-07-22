@@ -96,12 +96,13 @@ macro(light_var_hook_value_changed VAR HOOK)
         light_append(LIGHT_VAR_HOOK_LIST__${VAR} ${HOOK})
 endmacro()
 
+# LIGHT_RUN_MODE, LIGHT_SYSTEM and LIGHT_PLATFORM are deliberately NOT seeded here even though
+# they're framework-global: light_platform.cmake is their actual owner (it declares and
+# defaults each of them itself), so pre-seeding them here just made every one of those
+# light_declare() calls immediately warn about "multiple declaration"
 set(LIGHT_SHARED_VARS
         LIGHT_SHARED_VARS
         LIGHT_PATH
-        LIGHT_RUN_MODE
-        LIGHT_SYSTEM
-        LIGHT_PLATFORM
         LIGHT_HOOKED_VAR_LIST
         LIGHT_HOOK_ADD_VAR_LIST
 )
