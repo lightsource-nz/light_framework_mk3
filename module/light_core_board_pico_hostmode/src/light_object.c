@@ -6,34 +6,22 @@
  *  created december 2024
  * 
  */
-#include <light_core_port.h>
-#include <light_common.h>
-#include <light_object.h>
+#include <light.h>
 
-#include <pico/critical_section.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 
 static bool _registry_loaded = false;
 static struct light_object_registry _registry_default;
 
-static void _registry_critical_enter(struct light_object_registry *reg)
-{
-        critical_section_enter_blocking(reg->mutex);
-}
-static void _registry_critical_exit(struct light_object_registry *reg)
-{
-        critical_section_exit(reg->mutex);
-}
-
 void light_core_impl_setup()
 {
         if(!_registry_loaded) {
-                _registry_loaded = true;
-                critical_section_init(_registry_default.mutex);
                 _registry_default.alloc = light_alloc;
                 _registry_default.free = light_free;
+                _registry_loaded = true;
         }
 }
 static struct light_object_registry *_get_default_registry()
@@ -141,7 +129,7 @@ int light_object_del_reg(struct light_object_registry *reg, struct light_object 
 
 void light_object_init_reg(struct light_object_registry *reg, struct light_object *obj, const struct lobj_type *type)
 {
-        obj->ref_count = 1;
+        atomic_store(&obj->ref_count, 1);
         obj->type = type;
 }
 // TODO implement saturation conditions and warnings
@@ -149,20 +137,27 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
 {
         struct light_object *ref = obj;
         if(obj) {
-                critical_section_enter_blocking(reg->mutex);
-                if(obj->ref_count > 0)
-                        obj->ref_count++;
-                else
-                         ref = NULL;
-                critical_section_exit(reg->mutex);
+                uint32_t old;
+                do {
+                        old = obj->ref_count;
+                        if(old == 0) {
+                                ref = NULL;
+                                break;
+                        }
+                } while (!atomic_compare_exchange_strong(&obj->ref_count, &old, obj->ref_count + 1));
         }
         return ref;
 }
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-        critical_section_enter_blocking(reg->mutex);
-        obj->ref_count--;
-        critical_section_exit(reg->mutex);
+        uint8_t status;
+        uint32_t count = obj->ref_count;
+        do {
+                if(count > 0)
+                        status = atomic_compare_exchange_strong(&obj->ref_count, &count, count - 1);
+                else
+                        return;
+        } while (status);
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,

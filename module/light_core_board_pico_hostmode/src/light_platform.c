@@ -1,12 +1,13 @@
-#include <light_platform.h>
-#include <light_core_port.h>
-#include <light_common.h>
-#include <light_object.h>
+#include <light.h>
 #if(LIGHT_SYSTEM != SYSTEM_PICO_SDK)
         #error "this file should only be compiled when Pico SDK support is enabled"
 #endif
 
 #include <pico/time.h>
+
+#include <threads.h>
+#include <unistd.h>
+#include <stdlib.h>
 
 #define LIGHT_PLATFORM_MAX_TIMERS       8
 #define _INSTANCE_INVALID               16
@@ -17,9 +18,21 @@
 static struct lp_timer *timer_instance[LIGHT_PLATFORM_MAX_TIMERS];
 static uint8_t timer_instance_count = 0;
 
+light_task_t main_task;
+static uint32_t system_time_at_init;
+
 void light_platform_init()
 {
-        
+        main_task = thrd_current();
+        system_time_at_init = light_platform_get_absolute_time_ms();
+}
+light_task_t light_platform_get_task()
+{
+        return thrd_current();
+}
+light_task_t light_platform_get_main_task()
+{
+        return main_task;
 }
 static uint8_t _get_free_timer_instance()
 {
@@ -80,7 +93,54 @@ uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
                 return 0;
         }
 }
-uint32_t light_platform_get_time_since_init()
+uint32_t light_platform_get_absolute_time_ms()
 {
         return to_ms_since_boot(get_absolute_time());
+}
+uint32_t light_platform_get_time_since_init()
+{
+        return light_platform_get_absolute_time_ms() - system_time_at_init;
+}
+void light_platform_sleep_ms(uint32_t period)
+{
+        sleep_ms(period);
+}
+static uint8_t *_do_getenv(const uint8_t *name)
+{
+#if defined(__GNUC__) && !defined(_WIN32)
+        return secure_getenv(name);
+#else
+        return getenv(name);
+#endif
+}
+uint8_t *light_platform_getenv(const uint8_t *name)
+{
+        return _do_getenv(name);
+}
+uint8_t *light_platform_get_user_home()
+{
+#ifdef _WIN32
+        uint8_t *home = _do_getenv("HOME");
+        return home ? home : _do_getenv("USERPROFILE");
+#else
+        return _do_getenv("HOME");
+#endif
+}
+uint8_t *light_platform_get_user_name()
+{
+#ifdef _WIN32
+        uint8_t *name = _do_getenv("USER");
+        return name ? name : _do_getenv("USERNAME");
+#else
+        return _do_getenv("USER");
+#endif
+}
+uint16_t light_platform_get_user_id()
+{
+#ifdef _WIN32
+        // no POSIX UID concept on Windows
+        return 0;
+#else
+        return getuid();
+#endif
 }

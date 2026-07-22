@@ -20,8 +20,12 @@ target_sources(
 target_link_libraries(
         light_core_board_pico_hostmode
         INTERFACE
-        ${CMAKE_CURRENT_LIST_DIR}/objects.pico_hostmode.ld
         light_core
         pico_stdlib
         pico_sync
+)
+target_link_options(
+        light_core_board_pico_hostmode
+        INTERFACE
+        "-Wl,-T,${CMAKE_CURRENT_LIST_DIR}/objects.pico_hostmode.ld"
 )

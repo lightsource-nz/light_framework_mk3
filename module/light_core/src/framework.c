@@ -11,6 +11,13 @@
 #define _STATUS_STRING_SHUTDOWN    "shutdown"
 #define _STATUS_STRING_ERROR       "error"
 
+// interval between successive rounds of periodic task polling: individual tasks are
+// responsible for their own rate-gating (e.g. a fixed frame rate), so this just bounds how
+// often the scheduler re-checks them, instead of spinning it as fast as the CPU allows
+#ifndef LIGHT_TASK_POLL_INTERVAL_MS
+#define LIGHT_TASK_POLL_INTERVAL_MS 1
+#endif
+
 extern int __light_modules_start, __light_modules_end;
 
 static struct light_module **static_modules;
@@ -201,6 +208,8 @@ void light_framework_run(int argc, char *argv[])
                         task = &app_periodic_tasks[i];
                         status = task->run(app);
                 }
+                if(status == LF_STATUS_RUN)
+                        light_platform_sleep_ms(LIGHT_TASK_POLL_INTERVAL_MS);
         }
         light_debug("task %s returned code %s, shutting down",
                                         task->name, light_task_status_string(status));

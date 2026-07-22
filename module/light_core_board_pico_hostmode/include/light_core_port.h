@@ -3,25 +3,38 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <threads.h>
 
-#include <pico.h>
-#include <pico/critical_section.h>
-
-#define __static_descriptor __in_flash(".descriptors")
+#define __static_descriptor
 #define __static_buffer
 #define __static_module __attribute__ ((section(".light.static_module")))
 #define __static_stream __attribute__ ((section(".light.static_stream")))
 #define __static_object __attribute__ ((section(".light.static")))
 
-// C11 atomics are not supported on Cortex-M0/M0+ CPU cores, so RP2040 targets
-// must use hard spinlocks for synchronization between cores
-typedef uint32_t light_ref_t;
+// pico_hostmode runs as a normal OS process on top of pico-sdk's host stubs (PICO_PLATFORM=host),
+// not on bare-metal RP2040 hardware, so (unlike light_core_chip_rp2040) C11 threads and atomics
+// are available here -- this port mirrors light_core_arch_host_os rather than the real chip port
+#include <stdatomic.h>
+typedef atomic_char32_t light_ref_t;
+#define __packed_aligned
 
-typedef critical_section_t light_mutex_t;
-typedef uint32_t light_task_t;
+typedef mtx_t light_mutex_t;
+typedef thrd_t light_task_t;
+typedef cnd_t light_condition_t;
+
+#define light_mutex_init(mutex) mtx_init(mutex, mtx_plain)
+#define light_mutex_destroy(mutex) mtx_destroy(mutex)
+#define light_mutex_init_recursive(mutex) mtx_init(mutex, mtx_recursive)
+#define light_mutex_do_lock(mutex) mtx_lock(mutex)
+#define light_mutex_do_unlock(mutex) mtx_unlock(mutex)
+#define light_condition_init(cond) cnd_init(cond)
+#define light_condition_destroy(cond) cnd_destroy(cond)
+#define light_condition_wait(cond, mutex) cnd_wait(cond, mutex)
+#define light_condition_timedwait(cond, mutex, time) cnd_timedwait(cond, mutex, time)
+#define light_condition_broadcast(cond) cnd_broadcast(cond)
+#define light_condition_signal(cond) cnd_signal(cond)
 
 struct light_object_registry {
-        light_mutex_t *mutex;
         void *(*alloc)(size_t);
         void (*free)(void *);
 };
