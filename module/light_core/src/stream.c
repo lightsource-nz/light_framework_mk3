@@ -211,17 +211,22 @@ void light_stream_service_message_queues()
                 struct light_stream *stream = streams_defined[i];
                 struct light_stream_mqueue *queue = light_stream_get_queue(stream);
                 if(!light_stream_mqueue_is_empty(queue)) {
-                        struct light_message *message;
-                        if(message = light_stream_mqueue_try_get(queue)) {
-                                light_mutex_do_lock(&stream->lock);
-                                if(message->flags & LIGHT_MSG_FASTER) {
-                                        stream->handler_va(stream, message->text, message->args);
-                                } else {
-                                        stream->handler(stream, message->text);
-                                }
-                                light_mutex_do_unlock(&stream->lock);
-                                light_free(message);
+                        // processed directly out of the queue slot, under a single lock hold,
+                        // rather than copying the (~256-byte) struct light_message out to a local
+                        // first -- this runs on platforms where the calling stack is only ~2KB
+                        // total (e.g. the RP2040 core1 worker), where a message-sized local on top
+                        // of the rest of this call chain (plus whatever an interrupt handler adds
+                        // on the same stack) is a real overflow risk
+                        light_mutex_do_lock(&stream->lock);
+                        if(!light_stream_mqueue_is_empty(queue)) {
+                                struct light_message *message = light_stream_mqueue_peek(queue);
+                                // both message types are fully formatted by the time they're queued
+                                // (see light_stream_mqueue_add_fast()/_add_faster()), so there's no
+                                // longer a distinction to make here based on message->flags
+                                stream->handler(stream, message->text);
+                                light_stream_mqueue_advance(queue);
                         }
+                        light_mutex_do_unlock(&stream->lock);
                 }
         }
 }
@@ -247,73 +252,89 @@ void light_stream_unlock_output(struct light_stream *stream)
 }
 void light_stream_mqueue_init(struct light_stream_mqueue *queue)
 {
-        light_mutex_init(&queue->lock);
         light_condition_init(&queue->write_ready);
         queue->count = 0;
         queue->head = 0;
 }
-void light_stream_mqueue_add_fast(struct light_stream_mqueue *queue, const uint8_t *text)
+// blocks until there's room, then claims and returns the index of the next slot to
+// write into. caller must already hold 'lock', and must fill in the claimed slot's
+// .flags/.text before releasing it
+static uint8_t mqueue_claim_slot(light_mutex_t *lock, struct light_stream_mqueue *queue)
 {
-        light_mutex_do_lock(&queue->lock);
         while(queue->count >= LIGHT_STREAM_MQUEUE_DEPTH) {
-                light_condition_wait(&queue->write_ready, &queue->lock);
+                light_condition_wait(&queue->write_ready, lock);
         }
         uint8_t index = queue->head;
         queue->count++;
         queue->head = (queue->head + 1) % LIGHT_STREAM_MQUEUE_DEPTH;
-        queue->message[index] = (struct light_message) {
-                .flags = LIGHT_MSG_FAST,
-                .text = text
-        };
-        light_mutex_do_unlock(&queue->lock);
+        return index;
 }
-void light_stream_mqueue_add_faster(struct light_stream_mqueue *queue, const uint8_t *text, va_list args)
+// formats 'format'+'args' directly into the next available slot's embedded text
+// buffer -- no heap or scratch buffer of any kind is involved. acquires and releases
+// 'lock' itself
+static void mqueue_put_formatted(light_mutex_t *lock, struct light_stream_mqueue *queue, uint8_t flags, const uint8_t *format, va_list args)
 {
-        light_mutex_do_lock(&queue->lock);
-        while(queue->count >= LIGHT_STREAM_MQUEUE_DEPTH) {
-                light_condition_wait(&queue->write_ready, &queue->lock);
-        }
-        uint8_t index = queue->head;
-        queue->count++;
-        queue->head = (queue->head + 1) % LIGHT_STREAM_MQUEUE_DEPTH;
-        queue->message[index].flags = LIGHT_MSG_FASTER;
-        queue->message[index].text = text;
-        va_copy(queue->message[index].args, args);
-        light_mutex_do_unlock(&queue->lock);
+        light_mutex_do_lock(lock);
+        uint8_t index = mqueue_claim_slot(lock, queue);
+        queue->message[index].flags = flags;
+        vsnprintf((char *)queue->message[index].text, LIGHT_STREAM_MAX_MSG_LENGTH, (const char *)format, args);
+        light_mutex_do_unlock(lock);
 }
-// caller must hold the lock on queue before calling!
-static struct light_message *mqueue_take(struct light_stream_mqueue *queue)
+void light_stream_mqueue_add_fast(light_mutex_t *lock, struct light_stream_mqueue *queue, const uint8_t *text)
 {
-        // FIXME I'm certain this heap allocation is totally redundant, but removing
-        // it entails changing the API, so I'm just leaving a note for now
-        struct light_message *message = light_alloc(sizeof(struct light_message));
+        light_mutex_do_lock(lock);
+        uint8_t index = mqueue_claim_slot(lock, queue);
+        queue->message[index].flags = LIGHT_MSG_FAST;
+        snprintf((char *)queue->message[index].text, LIGHT_STREAM_MAX_MSG_LENGTH, "%s", text);
+        light_mutex_do_unlock(lock);
+}
+void light_stream_mqueue_add_faster(light_mutex_t *lock, struct light_stream_mqueue *queue, const uint8_t *format, va_list args)
+{
+        mqueue_put_formatted(lock, queue, LIGHT_MSG_FASTER, format, args);
+}
+// returns a pointer to the oldest queued message without removing it, so it can be
+// used in place (e.g. passed straight to a stream's handler) instead of copied out --
+// avoiding a ~256-byte stack local for callers running on a tight stack budget (see
+// light_stream_service_message_queues()). caller must hold the queue's lock, and the
+// queue must not be empty
+struct light_message *light_stream_mqueue_peek(struct light_stream_mqueue *queue)
+{
         uint8_t message_idx = (LIGHT_STREAM_MQUEUE_DEPTH + (queue->head - queue->count)) % LIGHT_STREAM_MQUEUE_DEPTH;
-
-        memcpy(message, &queue->message[message_idx], sizeof(struct light_message));
+        return &queue->message[message_idx];
+}
+// removes the message most recently returned by light_stream_mqueue_peek() and wakes
+// any producer waiting for space. caller must hold the queue's lock
+void light_stream_mqueue_advance(struct light_stream_mqueue *queue)
+{
         queue->count--;
         light_condition_signal(&queue->write_ready);
-        return message;
 }
-struct light_message *light_stream_mqueue_get(struct light_stream_mqueue *queue)
+// caller must hold the lock on queue before calling!
+static void mqueue_take(struct light_stream_mqueue *queue, struct light_message *out)
 {
-        light_mutex_do_lock(&queue->lock);
-        struct light_message *out = mqueue_take(queue);
-        light_mutex_do_unlock(&queue->lock);
-        return out;
+        *out = *light_stream_mqueue_peek(queue);
+        light_stream_mqueue_advance(queue);
 }
-struct light_message *light_stream_mqueue_try_get(struct light_stream_mqueue *queue)
+bool light_stream_mqueue_get(light_mutex_t *lock, struct light_stream_mqueue *queue, struct light_message *out)
+{
+        light_mutex_do_lock(lock);
+        mqueue_take(queue, out);
+        light_mutex_do_unlock(lock);
+        return true;
+}
+bool light_stream_mqueue_try_get(light_mutex_t *lock, struct light_stream_mqueue *queue, struct light_message *out)
 {
         if(light_stream_mqueue_is_empty(queue)) {
-                return NULL;
+                return false;
         }
-        light_mutex_do_lock(&queue->lock);
+        light_mutex_do_lock(lock);
         if(light_stream_mqueue_is_empty(queue)) {
-                light_mutex_do_unlock(&queue->lock);
-                return NULL;
+                light_mutex_do_unlock(lock);
+                return false;
         }
-        struct light_message *out = mqueue_take(queue);
-        light_mutex_do_unlock(&queue->lock);
-        return out;
+        mqueue_take(queue, out);
+        light_mutex_do_unlock(lock);
+        return true;
 }
 bool light_stream_mqueue_is_empty(struct light_stream_mqueue *queue)
 {
@@ -376,20 +397,10 @@ void light_stream_message_f_fast(struct light_stream *stream, const uint8_t *for
 }
 void light_stream_message_vf_fast(struct light_stream *stream, const uint8_t *format, va_list args)
 {
-        char *message;
-#ifdef __GNUC__
-        vasprintf(&message, format, args);
-#else
-        uint8_t buffer[LIGHT_STREAM_MAX_MSG_LENGTH];
-        vsnprintf(&buffer, LIGHT_STREAM_MAX_MSG_LENGTH, format, args);
-        message = light_alloc(strlen(&buffer) + 1);
-        strcpy(message, &buffer);
-#endif
-        light_stream_mqueue_add_fast(&stream->queue, message);
+        mqueue_put_formatted(&stream->lock, &stream->queue, LIGHT_MSG_FAST, format, args);
 }
-//   'faster' CLI messages defer all CPU-intensive work for asynchronous processing,
-// with the consequence that all referenced objects must remain in scope until
-// the kernel worker can perform string formatting
+//   'faster' CLI messages are formatted immediately, same as 'fast' -- see the comment
+// on light_stream_message_vf_faster()'s declaration in light_stream.h
 void light_stream_message_f_faster(struct light_stream *stream, const uint8_t *format, ...)
 {
         va_list args;
@@ -399,5 +410,5 @@ void light_stream_message_f_faster(struct light_stream *stream, const uint8_t *f
 }
 void light_stream_message_vf_faster(struct light_stream *stream, const uint8_t *format, va_list args)
 {
-        light_stream_mqueue_add_faster(&stream->queue, format, args);
+        light_stream_mqueue_add_faster(&stream->lock, &stream->queue, format, args);
 }

@@ -10,16 +10,29 @@
 // TODO the mqueue interface can probably be excluded from the public API
 #define LIGHT_STREAM_MQUEUE_DEPTH             32
 
+// max length of a fully-formatted message, including the trailing NUL. every message
+// is formatted directly into its queue slot at enqueue time (see light_stream_mqueue_add_fast()/
+// _add_faster() in stream.c) -- there is no heap allocation anywhere in this pipeline,
+// since a queue's total storage is fixed-size and pre-allocated for the life of its
+// owning stream, which matters on platforms where the heap is small/fragmentable or
+// simply absent
+#define LIGHT_STREAM_MAX_MSG_LENGTH        256
+
 struct light_message {
         uint8_t flags;
-        const uint8_t *text;
-        va_list args;
+        uint8_t text[LIGHT_STREAM_MAX_MSG_LENGTH];
 };
 
 // .message[] is treated as a circular buffer, collisions are avoided by
 // checking that .count <= LIGHT_CLI_MQUEUE_DEPTH before writes
+//
+// this struct is always embedded in a struct light_stream and shares that stream's own
+// light_mutex_t rather than owning one of its own (see the light_stream_mqueue_* signatures
+// below, which take the owning stream's lock explicitly) -- on platforms where each mutex
+// permanently consumes a scarce shared resource (e.g. RP2040's 8 general-purpose hardware
+// spinlocks), a stream's output lock and its queue lock are never held at the same time, so
+// giving each stream two separate locks wastes half of that budget for no benefit
 struct light_stream_mqueue {
-        light_mutex_t lock;
         light_condition_t write_ready;
         uint8_t count;
         uint8_t head;
@@ -65,8 +78,6 @@ extern struct lobj_type ltype_light_stream;
 Light_Stream_Declare(light_stream_stdout);
 Light_Stream_Declare(light_stream_stderr);
 
-// max length of message after substitution is performed
-#define LIGHT_STREAM_MAX_MSG_LENGTH        128
 #define LIGHT_STREAM_MAX_STREAMS           16
 
 // void light_stream_service_message_queues():
@@ -94,10 +105,20 @@ extern void light_stream_lock_output(struct light_stream *stream);
 extern void light_stream_unlock_output(struct light_stream *stream);
 
 extern void light_stream_mqueue_init(struct light_stream_mqueue *queue);
-extern void light_stream_mqueue_add_fast(struct light_stream_mqueue *queue, const uint8_t *text);
-extern void light_stream_mqueue_add_faster(struct light_stream_mqueue *queue, const uint8_t *text, va_list args);
-extern struct light_message *light_stream_mqueue_get(struct light_stream_mqueue *queue);
-extern struct light_message *light_stream_mqueue_try_get(struct light_stream_mqueue *queue);
+extern void light_stream_mqueue_add_fast(light_mutex_t *lock, struct light_stream_mqueue *queue, const uint8_t *text);
+extern void light_stream_mqueue_add_faster(light_mutex_t *lock, struct light_stream_mqueue *queue, const uint8_t *format, va_list args);
+// copies the oldest queued message into *out (by value; no heap involved) and returns
+// true, or returns false without touching *out if the queue was empty. on a tight
+// stack budget, consider light_stream_mqueue_peek()/_advance() instead, which process
+// the message in place rather than copying the whole (~256-byte) struct onto the stack
+extern bool light_stream_mqueue_get(light_mutex_t *lock, struct light_stream_mqueue *queue, struct light_message *out);
+extern bool light_stream_mqueue_try_get(light_mutex_t *lock, struct light_stream_mqueue *queue, struct light_message *out);
+// lower-level pair for processing a message in place under lock, without copying it
+// onto the caller's stack: peek() returns a pointer to the oldest queued message
+// (queue must not be empty), the caller uses it directly, then advance() removes it.
+// caller must hold 'lock' across both calls, and not call peek() on an empty queue
+extern struct light_message *light_stream_mqueue_peek(struct light_stream_mqueue *queue);
+extern void light_stream_mqueue_advance(struct light_stream_mqueue *queue);
 extern bool light_stream_mqueue_is_empty(struct light_stream_mqueue *queue);
 extern bool light_stream_mqueue_is_full(struct light_stream_mqueue *queue);
 
@@ -113,9 +134,11 @@ extern void light_stream_message_vf_sync(struct light_stream *stream, const uint
 extern void light_stream_message_fast(struct light_stream *stream, const uint8_t *message);
 extern void light_stream_message_f_fast(struct light_stream *stream, const uint8_t *format, ...);
 extern void light_stream_message_vf_fast(struct light_stream *stream, const uint8_t *format, va_list args);
-//   'faster' CLI messages defer all CPU-intensive work for asynchronous processing,
-// with the consequence that all referenced objects must remain in scope until
-// the kernel worker can perform string formatting
+//   'faster' CLI messages skip the log-level/function-name prefix 'fast' messages get
+// added by light_log_internal(), but are otherwise formatted immediately, the same as
+// 'fast' -- deferring formatting to the consumer was the original design here, but it
+// required storing a va_list in the queue past the return of the stack frame that
+// started it, which is undefined behaviour
 extern void light_stream_message_f_faster(struct light_stream *stream, const uint8_t *format, ...);
 extern void light_stream_message_vf_faster(struct light_stream *stream, const uint8_t *format, va_list args);
 

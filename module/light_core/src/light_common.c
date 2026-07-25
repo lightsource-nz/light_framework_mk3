@@ -134,9 +134,9 @@ static void _log_fast(struct light_stream *stream, const uint8_t level, const ui
         vsnprintf(log_buffer_pri, LIGHT_LOG_BUFFER_SEC_SIZE - (cursor - log_buffer_sec), format, args);
         cursor = strncat(cursor, log_buffer_pri, max_copy);
         cursor = strcat(cursor, "\n");
-        uint8_t *msg_text = light_alloc(strlen(log_buffer_sec) + 1);
-        strcpy(msg_text, log_buffer_sec);
-        light_stream_mqueue_add_fast(&stream->queue, msg_text);
+        // light_stream_mqueue_add_fast() copies this into the queue slot itself -- no
+        // heap allocation needed here (log_buffer_sec is a local stack buffer)
+        light_stream_mqueue_add_fast(&stream->lock, &stream->queue, log_buffer_sec);
 }
 static void _log_faster(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
 {

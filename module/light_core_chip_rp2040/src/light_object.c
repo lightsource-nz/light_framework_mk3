@@ -20,6 +20,11 @@ void light_core_port_worker_launch(void (*worker_fn)(void))
 {
         _worker_stop_requested = false;
         _worker_finished = false;
+        // deliberately NOT calling multicore_reset_core1() first: it's the textbook-recommended
+        // thing to do, but combined with a debug probe having ever touched core1 (SWD multidrop
+        // examining both cores' DAPs) it corrupts OpenOCD's/the debugger's view of core1 --
+        // "Failed to select multidrop rp2040.dap1" -- without actually being needed for a real,
+        // undebugged boot (see raspberrypi/pico-sdk#2249)
         multicore_launch_core1(worker_fn);
 }
 void light_core_port_worker_signal_stop(void)
