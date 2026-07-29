@@ -83,6 +83,23 @@ void light_display_ioport_send_data_byte(struct io_context *io, uint8_t data)
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
         }
 }
+void light_display_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        light_trace("burst: %d bytes", len);
+        switch(io->io_type) {
+        case IO_I2C:
+                _platform_i2c_send_data_burst(io, data, len);
+                break;
+        case IO_SPI_3P:
+                _platform_spi3_send_data_burst(io, data, len);
+                break;
+        case IO_SPI_4P:
+                _platform_spi4_send_data_burst(io, data, len);
+                break;
+        default:
+                light_warn("invalid I/O context type code: 0x%x", io->io_type);
+        }
+}
 void light_display_ioport_signal_reset(struct io_context *io)
 {
         _platform_signal_reset(io);

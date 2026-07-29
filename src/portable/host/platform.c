@@ -29,15 +29,24 @@ void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd)
 void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data)
 {
 }
+void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+}
 void _platform_spi3_send_command_byte(struct io_context *io, uint8_t cmd)
 {
 }
 void _platform_spi3_send_data_byte(struct io_context *io, uint8_t data)
 {
 }
+void _platform_spi3_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+}
 void _platform_spi4_send_command_byte(struct io_context *io, uint8_t cmd)
 {
 }
 void _platform_spi4_send_data_byte(struct io_context *io, uint8_t data)
+{
+}
+void _platform_spi4_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
 {
 }
