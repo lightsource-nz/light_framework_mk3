@@ -340,7 +340,7 @@ struct light_cli_option *light_cli_find_command_option(
                 return light_cli_find_command_option(&root_command, name);
         }
         for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
-                if(strncmp(light_cli_option_get_name(command->option[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
+                if(!strncmp(light_cli_option_get_name(command->option[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
                         return command->option[i];
                 }
         }

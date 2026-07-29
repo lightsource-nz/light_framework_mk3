@@ -35,6 +35,7 @@ add_subdirectory(platform/board)
 
 # tests
 if(LIGHT_PLATFORM STREQUAL HOST)
+        enable_testing()
         add_subdirectory(test/demo_cli)
 endif()
 
