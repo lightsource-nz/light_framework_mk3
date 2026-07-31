@@ -16,9 +16,19 @@
 #define IO_SPI_4P                       1
 #define IO_SPI_3P                       2
 
+// pass as pin_reset to any setup_io_*() call for boards with no hardware RESET line broken
+// out (common on simple I2C breakouts) -- 0xFF is never a valid RP2040 GPIO number, so it's
+// safe to use as a sentinel. signal_reset() becomes a no-op for a context set up this way,
+// and the reset pin is left unconfigured rather than driven
+#define LIGHT_DISPLAY_IOPORT_PIN_NONE   0xFF
+
 struct i2c_state {
         uint8_t pin_scl;
         uint8_t pin_sda;
+        // 7-bit slave address (e.g. 0x3C for the common default SSD1306/SH1106-family
+        // address, 0x3D if the display's SA0/D-C# pin is tied high) -- I2C has no chip-select
+        // line, so this is what identifies the target device on the shared bus instead
+        uint8_t addr;
 };
 struct spi_state {
         uint8_t pin_sck;
@@ -36,8 +46,10 @@ struct io_context {
         uint8_t pin_reset;
 };
 
+// unlike the SPI variants, there is no pin_cs here -- I2C addresses its target over the bus
+// itself (see 'addr' below) rather than with a dedicated chip-select line
 extern struct io_context *light_display_ioport_setup_io_i2c(
-                        uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_scl, uint8_t pin_sda);
+                        uint8_t port_id, uint8_t pin_reset, uint8_t addr, uint8_t pin_scl, uint8_t pin_sda);
 extern struct io_context *light_display_ioport_setup_io_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi);
 extern struct io_context *light_display_ioport_setup_io_spi_3p(

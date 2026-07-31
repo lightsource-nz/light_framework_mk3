@@ -6,12 +6,16 @@
 //      for now we just hard-code mappings for RP2040 targets.
 //      TODO add a decoupling layer to support other targets
 struct io_context *light_display_ioport_setup_io_i2c(
-                uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_scl, uint8_t pin_sda)
+                uint8_t port_id, uint8_t pin_reset, uint8_t addr, uint8_t pin_scl, uint8_t pin_sda)
 {
         // ASSERT  _port_is_i2c(port_id)
         struct io_context *io = light_alloc(sizeof(*io));
         io->io_type = IO_I2C;
         io->port_id = port_id;
+        // previously missing: light_display_ioport_signal_reset()/_platform_signal_reset()
+        // read io->pin_reset, but this function never stored it, leaving it uninitialised
+        io->pin_reset = pin_reset;
+        io->io.i2c.addr = addr;
         io->io.i2c.pin_scl = pin_scl;
         io->io.i2c.pin_sda = pin_sda;
 
