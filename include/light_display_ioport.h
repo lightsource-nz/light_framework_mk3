@@ -35,6 +35,10 @@ struct spi_state {
         uint8_t pin_cs;
         uint8_t pin_dc;
         uint8_t pin_mosi;
+        // DMA channel used for async burst sends, claimed once (RP2 platform only) when the
+        // io_context is set up and held for its whole lifetime -- not claimed/released per
+        // transfer. -1 on platforms/interfaces that don't back async sends with DMA
+        int dma_channel;
 };
 struct io_context {
         uint8_t io_type;
@@ -64,6 +68,15 @@ extern void light_display_ioport_send_data_byte(struct io_context *io, uint8_t d
 // address through (e.g. one SH1107 page-write burst); callers still issue their own
 // address-setup commands before the burst
 extern void light_display_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len);
+// non-blocking twin of send_data_burst(): kicks the transfer off (DMA-backed where the
+// platform/interface supports it) and returns immediately. 'data' must stay valid and
+// unmodified until burst_is_complete() reports true -- it's read asynchronously, possibly
+// well after this call returns, so it can't be a stack-local buffer that goes out of scope
+extern void light_display_ioport_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len);
+// call repeatedly (e.g. once per scheduler tick) until it returns true. only once true is it
+// safe to reuse or free the 'data' buffer passed to the async burst call, or to start another
+// transfer on the same io_context
+extern bool light_display_ioport_burst_is_complete(struct io_context *io);
 extern void light_display_ioport_signal_reset(struct io_context *io);
 
 #endif

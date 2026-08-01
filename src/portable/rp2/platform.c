@@ -9,6 +9,7 @@
 #include <hardware/i2c.h>
 #include <hardware/spi.h>
 #include <hardware/gpio.h>
+#include <hardware/dma.h>
 
 #define I2C_BAUDRATE                    (300 * 1000)
 // SH1106 itself is rated for 10MHz SPI (100ns min cycle time per its datasheet), but at that
@@ -87,6 +88,10 @@ void _platform_spi3_port_init(struct io_context *io)
         gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SIO);
         gpio_set_dir(io->io.spi.pin_cs, true);
         uint rate = spi_init(port, SPI_BAUDRATE);
+        // SPI3 sends aren't DMA-backed (see _platform_spi3_send_data_burst_async() below) --
+        // -1 makes the "unclaimed" state explicit rather than leaving light_alloc()'s
+        // (unzeroed) garbage in place
+        io->io.spi.dma_channel = -1;
         light_debug("spi port id 0x%x opened with baud rate %d", io->port_id, rate);
 }
 void _platform_spi4_port_init(struct io_context *io)
@@ -107,7 +112,13 @@ void _platform_spi4_port_init(struct io_context *io)
         gpio_set_function(io->io.spi.pin_dc, GPIO_FUNC_SIO);
         gpio_set_dir(io->io.spi.pin_dc, true);
         uint rate = spi_init(port, SPI_BAUDRATE);
-        light_debug("spi port id 0x%x opened with baud rate %d", io->port_id, rate);
+        // claimed once here and held for the io_context's whole lifetime -- not a
+        // per-transfer claim/release. this framework has no module teardown path (nothing
+        // calls light_module_unregister_periodic_task() meaningfully either), so there's
+        // nowhere to release it even if we wanted to; 12 channels are available on RP2040
+        // and this is currently the only DMA user, so exhaustion isn't a concern
+        io->io.spi.dma_channel = dma_claim_unused_channel(true);
+        light_debug("spi port id 0x%x opened with baud rate %d, dma channel %d", io->port_id, rate, io->io.spi.dma_channel);
 }
 
 void _platform_signal_reset(struct io_context *io)
@@ -163,6 +174,20 @@ void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, u
         i2c_write_blocking(port, io->io.i2c.addr, &control, 1, true);
         i2c_write_blocking(port, io->io.i2c.addr, data, len, false);
 }
+// RP2040 I2C-over-DMA needs the target address folded into each FIFO command word rather
+// than a simple buffer handoff (not exposed as a plain public API by hardware_i2c), which is
+// meaningfully more involved than the SPI case below. rather than build that out now, this is
+// a synchronous pass-through: no concurrency win on I2C yet, but it satisfies the async
+// contract (burst_is_complete() is always true immediately after) so callers don't need to
+// care which transport they're on
+void _platform_i2c_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        _platform_i2c_send_data_burst(io, data, len);
+}
+bool _platform_i2c_burst_is_complete(struct io_context *io)
+{
+        return true;
+}
 void _platform_spi3_send_command_byte(struct io_context *io, uint8_t cmd)
 {
 
@@ -174,6 +199,16 @@ void _platform_spi3_send_data_byte(struct io_context *io, uint8_t data)
 void _platform_spi3_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
 {
 
+}
+// SPI3 sends are unimplemented stubs above -- these follow the same pass-through shape as
+// the I2C ones for API consistency, but there's nothing to actually overlap yet either way
+void _platform_spi3_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        _platform_spi3_send_data_burst(io, data, len);
+}
+bool _platform_spi3_burst_is_complete(struct io_context *io)
+{
+        return true;
 }
 void _platform_spi4_send_command_byte(struct io_context *io, uint8_t cmd)
 {
@@ -203,4 +238,37 @@ void _platform_spi4_send_data_burst(struct io_context *io, const uint8_t *data, 
 
         spi_write_blocking(_spi_select(io->port_id), data, len);
         gpio_put(io->io.spi.pin_cs,true);
+}
+// non-blocking twin of the above: asserts DC/CS exactly the same way, then hands the
+// transfer to DMA instead of spi_write_blocking() and returns immediately. CS is NOT
+// deasserted here -- it stays low until burst_is_complete() confirms the transfer has
+// actually finished (see there for why). 'data' must stay valid until then -- it's read by
+// the DMA controller asynchronously, well after this function returns
+void _platform_spi4_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        spi_inst_t *port = _spi_select(io->port_id);
+
+        gpio_put(io->io.spi.pin_dc, true);
+        gpio_put(io->io.spi.pin_cs, false);
+
+        dma_channel_config c = dma_channel_get_default_config(io->io.spi.dma_channel);
+        channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+        channel_config_set_dreq(&c, spi_get_dreq(port, true));
+        channel_config_set_read_increment(&c, true);
+        channel_config_set_write_increment(&c, false);
+        dma_channel_configure(io->io.spi.dma_channel, &c,
+                &spi_get_hw(port)->dr, data, len, true /* start immediately */);
+}
+// DMA-complete only means the FIFO has been fully *fed* -- the SPI shift register can still
+// be clocking out the last byte or two after that. deasserting CS before the shift register
+// truly empties would corrupt the tail of the transfer, so this checks both dma_channel_is_busy()
+// (has DMA finished handing bytes to the peripheral) and spi_is_busy() (has the peripheral
+// actually finished shifting them out) before reporting done and raising CS
+bool _platform_spi4_burst_is_complete(struct io_context *io)
+{
+        spi_inst_t *port = _spi_select(io->port_id);
+        if(dma_channel_is_busy(io->io.spi.dma_channel) || spi_is_busy(port))
+                return false;
+        gpio_put(io->io.spi.pin_cs, true);
+        return true;
 }

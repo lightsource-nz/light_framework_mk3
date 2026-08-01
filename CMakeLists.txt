@@ -31,5 +31,6 @@ if(LIGHT_SYSTEM STREQUAL PICO_SDK AND LIGHT_PLATFORM STREQUAL TARGET)
                 pico_stdlib
                 hardware_i2c
                 hardware_spi
+                hardware_dma
         )
 endif()
