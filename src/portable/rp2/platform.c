@@ -12,14 +12,7 @@
 #include <hardware/dma.h>
 
 #define I2C_BAUDRATE                    (300 * 1000)
-// SH1106 itself is rated for 10MHz SPI (100ns min cycle time per its datasheet), but at that
-// rate a 100ns period leaves little margin for the RC rise/fall time of breadboard/jumper-wire
-// parasitic capacitance to settle before the next edge -- observed on the scope as a triangle
-// wave rather than a proper square wave, which means the receiver may not be sampling valid
-// logic levels at all. dropped to 1MHz (1000ns period) for bring-up on breadboard wiring; safe
-// to raise again once wiring moves to something with better signal integrity (short wires,
-// twisted/shielded pairs, or a real PCB)
-#define SPI_BAUDRATE                    (1000 * 1000)
+#define SPI_BAUDRATE                    (10 * 1000 * 1000)
 
 static i2c_inst_t *_i2c_select(uint8_t port_id)
 {
