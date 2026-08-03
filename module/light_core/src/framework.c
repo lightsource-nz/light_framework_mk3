@@ -126,7 +126,7 @@ static struct light_module *mods_active[LF_STATIC_MODULES_MAX];
 
 static uint8_t _lf_app_task(struct light_application *app)
 {
-        light_debug("Calling main task for application '%s', system time =%ums",
+        light_trace("Calling main task for application '%s', system time =%ums",
                                                         light_application_get_name(app),
                                                         light_platform_get_time_since_init());
 
