@@ -12,7 +12,17 @@ if (NOT TARGET _light_preinit_marker)
         if(LIGHT_SYSTEM STREQUAL PICO_SDK)
                 light_declare(PICO_SDK_PATH)
                 if(LIGHT_PLATFORM STREQUAL TARGET)
-                        set(PICO_PLATFORM rp2040)
+                        # pico-sdk doesn't derive PICO_PLATFORM from PICO_BOARD itself (its
+                        # own default is unconditionally rp2040 too -- see
+                        # pico-sdk/cmake/pico_pre_load_platform.cmake), so this has to be
+                        # set explicitly per board. rp2350-arm-s (not a generic "rp2350") is
+                        # the correct value for Pico 2 -- matches what tinyusb's own
+                        # hw/bsp/rp2040/boards/raspberry_pi_pico2/board.cmake sets
+                        if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w)
+                                set(PICO_PLATFORM rp2350-arm-s)
+                        else()
+                                set(PICO_PLATFORM rp2040)
+                        endif()
                         set(PICO_BOARD "${LIGHT_BOARD}")
                 elseif(LIGHT_PLATFORM STREQUAL HOST)
                         set(PICO_PLATFORM host)

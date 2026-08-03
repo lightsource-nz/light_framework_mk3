@@ -16,7 +16,19 @@ function(light_load_pico_sdk_support)
         #   TODO there are now a range of possible values for PICO_PLATFORM, and this
         # variable must be set early in the load before LIGHT_CHIP is selected
         if(LIGHT_PLATFORM STREQUAL TARGET)
-                light_set(PICO_PLATFORM rp2040)
+                # this duplicates external/light_preinit.cmake's own board->platform
+                # mapping (a second, separate place PICO_PLATFORM gets set -- this one
+                # runs later, during add_subdirectory(light_framework), overwriting
+                # whatever light_preinit.cmake already resolved right before the
+                # pico_sdk_init() call that actually matters, so it has to agree). same
+                # reasoning applies: pico-sdk doesn't derive PICO_PLATFORM from PICO_BOARD
+                # on its own, and rp2350-arm-s (not generic "rp2350") is the correct value
+                # for Pico 2
+                if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w)
+                        light_set(PICO_PLATFORM rp2350-arm-s)
+                else()
+                        light_set(PICO_PLATFORM rp2040)
+                endif()
         elseif(LIGHT_PLATFORM STREQUAL HOST)
                 light_set(PICO_PLATFORM host)
                 if(MINGW)
