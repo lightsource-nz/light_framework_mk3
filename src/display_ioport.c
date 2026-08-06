@@ -55,7 +55,10 @@ struct io_context *light_display_ioport_setup_io_spi_3p(
 
 void light_display_ioport_send_command_byte(struct io_context *io, uint8_t cmd)
 {
-        light_debug("command: 0x%x", cmd);
+        // trace, not debug -- fires multiple times per frame on any display driver that
+        // redraws continuously (e.g. CASET/RASET/RAMWR every update()), flooding the
+        // console at DEBUG level otherwise
+        light_trace("command: 0x%x", cmd);
         switch(io->io_type) {
         case IO_I2C:
                 _platform_i2c_send_command_byte(io, cmd);
