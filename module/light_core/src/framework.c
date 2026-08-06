@@ -153,14 +153,19 @@ void light_framework_init()
 {
         light_common_init();
         light_platform_init();
+
+        // must happen before light_stream_setup(): its single-core fallback path
+        // registers a periodic task to drain the message queue (see stream.c's
+        // light_stream_setup()), and resetting the task list after that registration
+        // would silently discard it, leaving nothing to ever drain the queue
+        app_one_shot_task_count = 0;
+        app_periodic_task_count = 0;
+
         // bootstrap the output stream system early so that we have access to logging
         light_stream_setup();
 
         light_info("Loading Light Framework runtime...");
         light_info("%s", LF_INFO_STR);
-
-        app_one_shot_task_count = 0;
-        app_periodic_task_count = 0;
 
         light_core_impl_setup();
         framework_loading = 1;

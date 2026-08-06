@@ -4,6 +4,7 @@
 #endif
 
 #include <pico/time.h>
+#include <pico/stdio.h>
 
 #define LIGHT_PLATFORM_MAX_TIMERS       8
 #define _INSTANCE_INVALID               16
@@ -19,6 +20,11 @@ static uint32_t system_time_at_init;
 
 void light_platform_init()
 {
+        // apps that don't separately call tinyusb's board_init() (which does its own
+        // stdio setup as a side effect -- crossfire relies on this) would otherwise never
+        // get GPIO/UART configured for stdio at all, silently dropping every light_info()/
+        // light_debug() call
+        stdio_init_all();
         alarm_pool_init_default();
         // core 0 is always the entry point on RP2350 (in Arm Secure mode), so it's simply
         // hardcoded as "main" here rather than tracked via any actual task/thread handle
