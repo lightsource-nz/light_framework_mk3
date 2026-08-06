@@ -18,7 +18,8 @@ if (NOT TARGET _light_preinit_marker)
                         # set explicitly per board. rp2350-arm-s (not a generic "rp2350") is
                         # the correct value for Pico 2 -- matches what tinyusb's own
                         # hw/bsp/rp2040/boards/raspberry_pi_pico2/board.cmake sets
-                        if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w)
+                        if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w
+                                        OR LIGHT_BOARD STREQUAL waveshare_rp2350_touch_lcd_1.69)
                                 set(PICO_PLATFORM rp2350-arm-s)
                         else()
                                 set(PICO_PLATFORM rp2040)

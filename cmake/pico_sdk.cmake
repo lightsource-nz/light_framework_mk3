@@ -24,7 +24,8 @@ function(light_load_pico_sdk_support)
                 # reasoning applies: pico-sdk doesn't derive PICO_PLATFORM from PICO_BOARD
                 # on its own, and rp2350-arm-s (not generic "rp2350") is the correct value
                 # for Pico 2
-                if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w)
+                if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w
+                                OR LIGHT_BOARD STREQUAL waveshare_rp2350_touch_lcd_1.69)
                         light_set(PICO_PLATFORM rp2350-arm-s)
                 else()
                         light_set(PICO_PLATFORM rp2040)
