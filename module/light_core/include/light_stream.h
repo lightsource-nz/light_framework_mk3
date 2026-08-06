@@ -8,7 +8,13 @@
 #define LIGHT_MSG_FASTER                  1
 
 // TODO the mqueue interface can probably be excluded from the public API
-#define LIGHT_STREAM_MQUEUE_DEPTH             32
+// on a single-core drain path (see light_stream_setup()'s LIGHT_PLATFORM_HAS_MULTICORE_WORKER=0
+// branch), filling this queue during synchronous boot is a hard deadlock -- nothing else
+// can run to drain it. 32 was enough for the base framework boot sequence alone, but not
+// once a board's hardware-init callback does enough of its own logging during device
+// creation on top of that -- bumped for headroom; cost is trivial (32 extra 257-byte
+// slots per stream) on every platform this runs on
+#define LIGHT_STREAM_MQUEUE_DEPTH             64
 
 // max length of a fully-formatted message, including the trailing NUL. every message
 // is formatted directly into its queue slot at enqueue time (see light_stream_mqueue_add_fast()/
