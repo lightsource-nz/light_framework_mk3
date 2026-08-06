@@ -32,5 +32,11 @@ if(LIGHT_SYSTEM STREQUAL PICO_SDK AND LIGHT_PLATFORM STREQUAL TARGET)
                 hardware_i2c
                 hardware_spi
                 hardware_dma
+                hardware_pio
+        )
+        pico_generate_pio_header(
+                light_display_ioport
+                ${CMAKE_CURRENT_LIST_DIR}/src/portable/rp2/pio_spi_write.pio
+                OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
 endif()
