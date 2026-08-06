@@ -1,5 +1,5 @@
-#ifndef _LIGHT_DISPLAY_IOPORT_H
-#define _LIGHT_DISPLAY_IOPORT_H
+#ifndef _LIGHT_IOPORT_H
+#define _LIGHT_IOPORT_H
 
 #include <light.h>
 #include <stdint.h>
@@ -29,7 +29,7 @@
 // out (common on simple I2C breakouts) -- 0xFF is never a valid RP2040 GPIO number, so it's
 // safe to use as a sentinel. signal_reset() becomes a no-op for a context set up this way,
 // and the reset pin is left unconfigured rather than driven
-#define LIGHT_DISPLAY_IOPORT_PIN_NONE   0xFF
+#define LIGHT_IOPORT_PIN_NONE   0xFF
 
 struct i2c_state {
         uint8_t pin_scl;
@@ -61,39 +61,39 @@ struct io_context {
 
 // unlike the SPI variants, there is no pin_cs here -- I2C addresses its target over the bus
 // itself (see 'addr' below) rather than with a dedicated chip-select line
-extern struct io_context *light_display_ioport_setup_io_i2c(
+extern struct io_context *light_ioport_setup_io_i2c(
                         uint8_t port_id, uint8_t pin_reset, uint8_t addr, uint8_t pin_scl, uint8_t pin_sda);
-extern struct io_context *light_display_ioport_setup_io_spi_4p(
+extern struct io_context *light_ioport_setup_io_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi);
-extern struct io_context *light_display_ioport_setup_io_spi_3p(
+extern struct io_context *light_ioport_setup_io_spi_3p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi);
-extern struct io_context *light_display_ioport_setup_io_pio_spi_4p(
+extern struct io_context *light_ioport_setup_io_pio_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi);
 // I/O functions are all blocking, for now
-extern void light_display_ioport_send_command_byte(struct io_context *io, uint8_t cmd);
-extern void light_display_ioport_send_data_byte(struct io_context *io, uint8_t data);
+extern void light_ioport_send_command_byte(struct io_context *io, uint8_t cmd);
+extern void light_ioport_send_data_byte(struct io_context *io, uint8_t data);
 // sends 'len' data bytes as one continuous transfer: CS is asserted once, held for the
 // whole burst, then deasserted -- for SPI, dramatically cheaper than 'len' individual
 // send_data_byte() calls, each of which pays its own CS/GPIO toggle overhead. safe to
 // use for any run of bytes the chip is expected to auto-increment its own internal
 // address through (e.g. one SH1107 page-write burst); callers still issue their own
 // address-setup commands before the burst
-extern void light_display_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len);
+extern void light_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len);
 // reads 'len' bytes starting at register 'reg' into 'out' -- a write-then-read
 // transaction (write the register address, then read the response, all under one held
 // bus transaction on I2C). added for touch controllers, not displays, which is why every
 // existing primitive above is write-only -- only the I2C path is implemented; calling
 // this on a SPI io_context returns false and leaves 'out' untouched
-extern bool light_display_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len);
+extern bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len);
 // non-blocking twin of send_data_burst(): kicks the transfer off (DMA-backed where the
 // platform/interface supports it) and returns immediately. 'data' must stay valid and
 // unmodified until burst_is_complete() reports true -- it's read asynchronously, possibly
 // well after this call returns, so it can't be a stack-local buffer that goes out of scope
-extern void light_display_ioport_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len);
+extern void light_ioport_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len);
 // call repeatedly (e.g. once per scheduler tick) until it returns true. only once true is it
 // safe to reuse or free the 'data' buffer passed to the async burst call, or to start another
 // transfer on the same io_context
-extern bool light_display_ioport_burst_is_complete(struct io_context *io);
-extern void light_display_ioport_signal_reset(struct io_context *io);
+extern bool light_ioport_burst_is_complete(struct io_context *io);
+extern void light_ioport_signal_reset(struct io_context *io);
 
 #endif

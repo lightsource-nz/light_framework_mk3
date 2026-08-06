@@ -1,9 +1,9 @@
 // portable/rp2/platform.c
 // implementation of IO routines for RP2 series MCUs
 
-#include <light_display_ioport.h>
+#include <light_ioport.h>
 
-#include "../../light_display_ioport_internal.h"
+#include "../../light_ioport_internal.h"
 
 #include <pico/time.h>
 #include <hardware/i2c.h>
@@ -95,7 +95,7 @@ void _platform_i2c_port_init(struct io_context *io)
         // some boards (common on simple I2C breakouts) don't break out a hardware RESET line
         // at all -- leave the pin unconfigured rather than driving a GPIO that isn't actually
         // wired to anything
-        if(io->pin_reset != LIGHT_DISPLAY_IOPORT_PIN_NONE) {
+        if(io->pin_reset != LIGHT_IOPORT_PIN_NONE) {
                 gpio_set_function(io->pin_reset, GPIO_FUNC_SIO);
                 gpio_set_dir(io->pin_reset, true);
         }
@@ -112,7 +112,7 @@ void _platform_spi3_port_init(struct io_context *io)
         }
         gpio_set_function(io->io.spi.pin_sck, GPIO_FUNC_SPI);
         gpio_set_function(io->io.spi.pin_mosi, GPIO_FUNC_SPI);
-        if(io->pin_reset != LIGHT_DISPLAY_IOPORT_PIN_NONE) {
+        if(io->pin_reset != LIGHT_IOPORT_PIN_NONE) {
                 gpio_set_function(io->pin_reset, GPIO_FUNC_SIO);
                 gpio_set_dir(io->pin_reset, true);
         }
@@ -134,7 +134,7 @@ void _platform_spi4_port_init(struct io_context *io)
         }
         gpio_set_function(io->io.spi.pin_sck, GPIO_FUNC_SPI);
         gpio_set_function(io->io.spi.pin_mosi, GPIO_FUNC_SPI);
-        if(io->pin_reset != LIGHT_DISPLAY_IOPORT_PIN_NONE) {
+        if(io->pin_reset != LIGHT_IOPORT_PIN_NONE) {
                 gpio_set_function(io->pin_reset, GPIO_FUNC_SIO);
                 gpio_set_dir(io->pin_reset, true);
         }
@@ -200,7 +200,7 @@ static void _pio_spi_write_blocking(PIO pio, uint sm, const uint8_t *data, uint3
 
 void _platform_signal_reset(struct io_context *io)
 {
-        if(io->pin_reset == LIGHT_DISPLAY_IOPORT_PIN_NONE) {
+        if(io->pin_reset == LIGHT_IOPORT_PIN_NONE) {
                 // no hardware RESET line on this board -- the chip only ever resets at
                 // power-on, so there's nothing to pulse here. chip_setup() still explicitly
                 // programs every register it cares about, so this is fine as long as the

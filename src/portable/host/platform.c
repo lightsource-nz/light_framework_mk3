@@ -1,9 +1,9 @@
 // portable/host/platform.c
 // implementation of IO routines for dev host platform
 
-#include <light_display_ioport.h>
+#include <light_ioport.h>
 
-#include "../../light_display_ioport_internal.h"
+#include "../../light_ioport_internal.h"
 
 void _platform_i2c_port_init(struct io_context *io)
 {

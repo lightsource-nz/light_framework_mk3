@@ -1,18 +1,18 @@
-#include <light_display_ioport.h>
+#include <light_ioport.h>
 
-#include "light_display_ioport_internal.h"
+#include "light_ioport_internal.h"
 
 // I/O port abstractions:
 //      for now we just hard-code mappings for RP2040 targets.
 //      TODO add a decoupling layer to support other targets
-struct io_context *light_display_ioport_setup_io_i2c(
+struct io_context *light_ioport_setup_io_i2c(
                 uint8_t port_id, uint8_t pin_reset, uint8_t addr, uint8_t pin_scl, uint8_t pin_sda)
 {
         // ASSERT  _port_is_i2c(port_id)
         struct io_context *io = light_alloc(sizeof(*io));
         io->io_type = IO_I2C;
         io->port_id = port_id;
-        // previously missing: light_display_ioport_signal_reset()/_platform_signal_reset()
+        // previously missing: light_ioport_signal_reset()/_platform_signal_reset()
         // read io->pin_reset, but this function never stored it, leaving it uninitialised
         io->pin_reset = pin_reset;
         io->io.i2c.addr = addr;
@@ -22,7 +22,7 @@ struct io_context *light_display_ioport_setup_io_i2c(
         _platform_i2c_port_init(io);
         return io;
 }
-struct io_context *light_display_ioport_setup_io_spi_4p(
+struct io_context *light_ioport_setup_io_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs,
                         uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi)
 {
@@ -38,7 +38,7 @@ struct io_context *light_display_ioport_setup_io_spi_4p(
         _platform_spi4_port_init(io);
         return io;
 }
-struct io_context *light_display_ioport_setup_io_spi_3p(
+struct io_context *light_ioport_setup_io_spi_3p(
                                 uint8_t port_id, uint8_t pin_reset,
                                 uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi)
 {
@@ -52,7 +52,7 @@ struct io_context *light_display_ioport_setup_io_spi_3p(
         _platform_spi3_port_init(io);
         return io;
 }
-struct io_context *light_display_ioport_setup_io_pio_spi_4p(
+struct io_context *light_ioport_setup_io_pio_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs,
                         uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi)
 {
@@ -68,7 +68,7 @@ struct io_context *light_display_ioport_setup_io_pio_spi_4p(
         return io;
 }
 
-void light_display_ioport_send_command_byte(struct io_context *io, uint8_t cmd)
+void light_ioport_send_command_byte(struct io_context *io, uint8_t cmd)
 {
         // trace, not debug -- fires multiple times per frame on any display driver that
         // redraws continuously (e.g. CASET/RASET/RAMWR every update()), flooding the
@@ -91,7 +91,7 @@ void light_display_ioport_send_command_byte(struct io_context *io, uint8_t cmd)
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
         }
 }
-void light_display_ioport_send_data_byte(struct io_context *io, uint8_t data)
+void light_ioport_send_data_byte(struct io_context *io, uint8_t data)
 {
         light_trace ("data: 0x%x", data);
         switch(io->io_type) {
@@ -111,7 +111,7 @@ void light_display_ioport_send_data_byte(struct io_context *io, uint8_t data)
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
         }
 }
-void light_display_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
+void light_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
 {
         light_trace("burst: %d bytes", len);
         switch(io->io_type) {
@@ -131,7 +131,7 @@ void light_display_ioport_send_data_burst(struct io_context *io, const uint8_t *
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
         }
 }
-void light_display_ioport_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+void light_ioport_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
 {
         light_trace("burst async: %d bytes", len);
         switch(io->io_type) {
@@ -148,7 +148,7 @@ void light_display_ioport_send_data_burst_async(struct io_context *io, const uin
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
         }
 }
-bool light_display_ioport_burst_is_complete(struct io_context *io)
+bool light_ioport_burst_is_complete(struct io_context *io)
 {
         switch(io->io_type) {
         case IO_I2C:
@@ -162,11 +162,11 @@ bool light_display_ioport_burst_is_complete(struct io_context *io)
                 return true;
         }
 }
-void light_display_ioport_signal_reset(struct io_context *io)
+void light_ioport_signal_reset(struct io_context *io)
 {
         _platform_signal_reset(io);
 }
-bool light_display_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
+bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
 {
         light_trace("read register: 0x%x, %d bytes", reg, len);
         switch(io->io_type) {

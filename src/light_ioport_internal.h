@@ -1,5 +1,5 @@
-#ifndef _LIGHT_DISPLAY_IOPORT_INTERNAL_H
-#define _LIGHT_DISPLAY_IOPORT_INTERNAL_H
+#ifndef _LIGHT_IOPORT_INTERNAL_H
+#define _LIGHT_IOPORT_INTERNAL_H
 
 // internal function signatures for portable platform I/O interface
 extern void _platform_i2c_port_init(struct io_context *io);
