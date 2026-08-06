@@ -12,9 +12,18 @@
 #define PORT_SPI_1                      4
 #define PORT_SPI_2                      5
 
+// PIO-emulated SPI master, for when both real hardware SPI peripherals are already
+// claimed by something else (e.g. crossfire's SPI link test rig, which needs spi0 as a
+// link-out master and spi1 as a link-in slave, leaving no hardware SPI free for a
+// display) -- port_id here selects which PIO block + state machine to claim, not a
+// hardware SPI instance
+#define PORT_PIO_SPI_0                  6
+#define PORT_PIO_SPI_1                  7
+
 #define IO_I2C                          0
 #define IO_SPI_4P                       1
 #define IO_SPI_3P                       2
+#define IO_PIO_SPI_4P                   3
 
 struct i2c_state {
         uint8_t pin_scl;
@@ -42,6 +51,8 @@ extern struct io_context *light_display_ioport_setup_io_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi);
 extern struct io_context *light_display_ioport_setup_io_spi_3p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi);
+extern struct io_context *light_display_ioport_setup_io_pio_spi_4p(
+                        uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi);
 // I/O functions are all blocking, for now
 extern void light_display_ioport_send_command_byte(struct io_context *io, uint8_t cmd);
 extern void light_display_ioport_send_data_byte(struct io_context *io, uint8_t data);
