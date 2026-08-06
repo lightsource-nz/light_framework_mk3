@@ -68,6 +68,12 @@ extern void light_display_ioport_send_data_byte(struct io_context *io, uint8_t d
 // address through (e.g. one SH1107 page-write burst); callers still issue their own
 // address-setup commands before the burst
 extern void light_display_ioport_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len);
+// reads 'len' bytes starting at register 'reg' into 'out' -- a write-then-read
+// transaction (write the register address, then read the response, all under one held
+// bus transaction on I2C). added for touch controllers, not displays, which is why every
+// existing primitive above is write-only -- only the I2C path is implemented; calling
+// this on a SPI io_context returns false and leaves 'out' untouched
+extern bool light_display_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len);
 // non-blocking twin of send_data_burst(): kicks the transfer off (DMA-backed where the
 // platform/interface supports it) and returns immediately. 'data' must stay valid and
 // unmodified until burst_is_complete() reports true -- it's read asynchronously, possibly

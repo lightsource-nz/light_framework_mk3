@@ -167,6 +167,20 @@ void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, u
         i2c_write_blocking(port, io->io.i2c.addr, &control, 1, true);
         i2c_write_blocking(port, io->io.i2c.addr, data, len, false);
 }
+// write-then-read: write the register address (nostop, keeps the START condition open),
+// then read the response as a separate transfer that issues its own STOP. this is plain
+// I2C register access (no SSD1306/SH1106-style control byte -- that convention is
+// specific to those display controllers, not a general I2C thing), which is why this
+// doesn't reuse I2C_CONTROL_COMMAND/_DATA above
+bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
+{
+        i2c_inst_t *port = _i2c_select(io->port_id);
+        int written = i2c_write_blocking(port, io->io.i2c.addr, &reg, 1, true);
+        if(written < 0)
+                return false;
+        int read = i2c_read_blocking(port, io->io.i2c.addr, out, len, false);
+        return read == (int)len;
+}
 // RP2040 I2C-over-DMA needs the target address folded into each FIFO command word rather
 // than a simple buffer handoff (not exposed as a plain public API by hardware_i2c), which is
 // meaningfully more involved than the SPI case below. rather than build that out now, this is

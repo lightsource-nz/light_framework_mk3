@@ -142,3 +142,16 @@ void light_display_ioport_signal_reset(struct io_context *io)
 {
         _platform_signal_reset(io);
 }
+bool light_display_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
+{
+        light_trace("read register: 0x%x, %d bytes", reg, len);
+        switch(io->io_type) {
+        case IO_I2C:
+                return _platform_i2c_read_register(io, reg, out, len);
+        default:
+                // no display driver has ever needed a read path (SPI3/4 are write-only in
+                // this codebase so far) -- not implemented rather than silently wrong
+                light_warn("read not implemented for I/O context type code: 0x%x", io->io_type);
+                return false;
+        }
+}
