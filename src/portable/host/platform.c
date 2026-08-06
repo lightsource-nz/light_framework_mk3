@@ -17,6 +17,10 @@ void _platform_spi4_port_init(struct io_context *io)
 {
         light_debug("spi port id 0x%x opened", io->port_id);
 }
+void _platform_pio_spi4_port_init(struct io_context *io)
+{
+        light_debug("pio spi port id 0x%x opened", io->port_id);
+}
 
 void _platform_signal_reset(struct io_context *io)
 {
@@ -74,4 +78,13 @@ void _platform_spi4_send_data_burst_async(struct io_context *io, const uint8_t *
 bool _platform_spi4_burst_is_complete(struct io_context *io)
 {
         return true;
+}
+void _platform_pio_spi4_send_command_byte(struct io_context *io, uint8_t cmd)
+{
+}
+void _platform_pio_spi4_send_data_byte(struct io_context *io, uint8_t data)
+{
+}
+void _platform_pio_spi4_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
+{
 }
