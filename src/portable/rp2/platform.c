@@ -395,3 +395,20 @@ void _platform_pio_spi4_send_data_burst(struct io_context *io, const uint8_t *da
         _pio_spi_write_blocking(_pio_spi_state[idx].pio, _pio_spi_state[idx].sm, data, len);
         gpio_put(io->io.spi.pin_cs, true);
 }
+// no DMA path here yet, unlike the hardware-SPI case above. the PIO program is fed by
+// pushing 32-bit words with the data byte in the TOP lane (see _pio_spi_write_blocking()),
+// which a plain byte-wise DMA can't produce without reworking the program's autopull
+// configuration -- and that program is on crossfire's live display path, so it isn't
+// something to change speculatively. so this is a synchronous pass-through, exactly like
+// the I2C case above: no concurrency win, but it satisfies the async contract
+// (burst_is_complete() is true immediately afterwards) so callers don't have to care which
+// transport they're on. callers still get their work spread across scheduler ticks by
+// light_display's per-poll chunk budget, so a long update is not one unbroken stall
+void _platform_pio_spi4_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        _platform_pio_spi4_send_data_burst(io, data, len);
+}
+bool _platform_pio_spi4_burst_is_complete(struct io_context *io)
+{
+        return true;
+}

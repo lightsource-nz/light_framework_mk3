@@ -88,3 +88,10 @@ void _platform_pio_spi4_send_data_byte(struct io_context *io, uint8_t data)
 void _platform_pio_spi4_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
 {
 }
+void _platform_pio_spi4_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+}
+bool _platform_pio_spi4_burst_is_complete(struct io_context *io)
+{
+        return true;
+}

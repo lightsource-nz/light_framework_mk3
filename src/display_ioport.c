@@ -144,6 +144,9 @@ void light_ioport_send_data_burst_async(struct io_context *io, const uint8_t *da
         case IO_SPI_4P:
                 _platform_spi4_send_data_burst_async(io, data, len);
                 break;
+        case IO_PIO_SPI_4P:
+                _platform_pio_spi4_send_data_burst_async(io, data, len);
+                break;
         default:
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
         }
@@ -157,6 +160,8 @@ bool light_ioport_burst_is_complete(struct io_context *io)
                 return _platform_spi3_burst_is_complete(io);
         case IO_SPI_4P:
                 return _platform_spi4_burst_is_complete(io);
+        case IO_PIO_SPI_4P:
+                return _platform_pio_spi4_burst_is_complete(io);
         default:
                 light_warn("invalid I/O context type code: 0x%x", io->io_type);
                 return true;
