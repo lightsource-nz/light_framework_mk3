@@ -180,7 +180,13 @@ void _platform_pio_spi4_port_init(struct io_context *io)
         _pio_spi_state[idx].pio = pio;
         _pio_spi_state[idx].sm = sm;
 
-        light_debug("pio spi port id 0x%x opened on pio%d sm%d", io->port_id, block_idx, sm);
+        // claimed once and held for the io_context's whole lifetime, same as the
+        // hardware-SPI path above -- see _platform_spi4_port_init() for why there's
+        // nowhere to release it and why exhaustion isn't a concern
+        io->io.spi.dma_channel = dma_claim_unused_channel(true);
+
+        light_debug("pio spi port id 0x%x opened on pio%d sm%d, dma channel %d",
+                        io->port_id, block_idx, sm, io->io.spi.dma_channel);
 }
 
 // waits not just for the FIFO to report empty, but for the state machine to actually
@@ -395,20 +401,60 @@ void _platform_pio_spi4_send_data_burst(struct io_context *io, const uint8_t *da
         _pio_spi_write_blocking(_pio_spi_state[idx].pio, _pio_spi_state[idx].sm, data, len);
         gpio_put(io->io.spi.pin_cs, true);
 }
-// no DMA path here yet, unlike the hardware-SPI case above. the PIO program is fed by
-// pushing 32-bit words with the data byte in the TOP lane (see _pio_spi_write_blocking()),
-// which a plain byte-wise DMA can't produce without reworking the program's autopull
-// configuration -- and that program is on crossfire's live display path, so it isn't
-// something to change speculatively. so this is a synchronous pass-through, exactly like
-// the I2C case above: no concurrency win, but it satisfies the async contract
-// (burst_is_complete() is true immediately afterwards) so callers don't have to care which
-// transport they're on. callers still get their work spread across scheduler ticks by
-// light_display's per-poll chunk budget, so a long update is not one unbroken stall
+// non-blocking twin of the above: asserts DC/CS the same way, then hands the transfer to
+// DMA and returns immediately. CS is NOT deasserted here -- it stays low until
+// burst_is_complete() confirms the state machine has actually finished (see there).
+// 'data' must stay valid until then: DMA reads it long after this returns.
+//
+// the DMA writes ONE BYTE AT A TIME straight to the TX FIFO, rather than the 32-bit
+// left-justified words _pio_spi_write_blocking() pushes. that works because the program is
+// configured shift-left with an autopull threshold of 8 (see pio_spi_write.pio), so the
+// state machine consumes exactly one byte per FIFO word regardless of how it got there --
+// the same arrangement Pico-PIO-USB's usb_tx.pio uses to DMA bytes into an identically
+// configured state machine
 void _platform_pio_spi4_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
 {
-        _platform_pio_spi4_send_data_burst(io, data, len);
+        int idx = _pio_spi_index(io->port_id);
+        if(idx < 0)
+                return;
+        PIO pio = _pio_spi_state[idx].pio;
+        uint sm = _pio_spi_state[idx].sm;
+
+        gpio_put(io->io.spi.pin_dc, true);
+        gpio_put(io->io.spi.pin_cs, false);
+
+        dma_channel_config c = dma_channel_get_default_config(io->io.spi.dma_channel);
+        channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+        channel_config_set_dreq(&c, pio_get_dreq(pio, sm, true));
+        channel_config_set_read_increment(&c, true);
+        channel_config_set_write_increment(&c, false);
+        dma_channel_configure(io->io.spi.dma_channel, &c,
+                &pio->txf[sm], data, len, true /* start immediately */);
 }
+// DMA completing only means the FIFO has been fully FED -- the state machine can still be
+// shifting the last byte or two out of the OSR, and dropping CS before it finishes would
+// truncate the tail of the transfer. so once DMA is done, clear the per-SM TXSTALL flag
+// and wait for the SM to re-assert it, which it does as soon as it blocks on an empty
+// FIFO, i.e. once it has genuinely run dry. that wait is bounded by a byte or two of bus
+// time (well under a microsecond at this clock), not by the length of the burst
 bool _platform_pio_spi4_burst_is_complete(struct io_context *io)
 {
+        int idx = _pio_spi_index(io->port_id);
+        if(idx < 0)
+                return true;
+        if(dma_channel_is_busy(io->io.spi.dma_channel))
+                return false;
+
+        PIO pio = _pio_spi_state[idx].pio;
+        uint sm = _pio_spi_state[idx].sm;
+        uint32_t stall_mask = 1u << (PIO_FDEBUG_TXSTALL_LSB + sm);
+        // cleared only now, after DMA has finished: clearing at kick time instead would
+        // race a momentary mid-burst stall setting it again before the transfer was
+        // anywhere near complete
+        pio->fdebug = stall_mask;
+        while(!(pio->fdebug & stall_mask))
+                tight_loop_contents();
+
+        gpio_put(io->io.spi.pin_cs, true);
         return true;
 }
