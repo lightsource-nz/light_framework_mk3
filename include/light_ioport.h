@@ -85,6 +85,15 @@ extern void light_ioport_send_data_burst(struct io_context *io, const uint8_t *d
 // existing primitive above is write-only -- only the I2C path is implemented; calling
 // this on a SPI io_context returns false and leaves 'out' untouched
 extern bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len);
+// the write twin of the above: writes 'len' bytes into consecutive registers starting at
+// 'reg', as a single transaction of [reg][data...]. like the read, this is plain I2C
+// register access with no SSD1306/SH1106 control byte -- so it is NOT interchangeable with
+// send_command_byte()/send_data_byte(), which prepend one. added for configuring sensors
+// (an IMU has control registers to set up; a touch controller only ever had to be read),
+// which is why every other write primitive here predates it and carries the display
+// convention instead. only the I2C path is implemented; SPI returns false
+extern bool light_ioport_write_register(struct io_context *io, uint8_t reg,
+                                                const uint8_t *data, uint32_t len);
 // non-blocking twin of send_data_burst(): kicks the transfer off (DMA-backed where the
 // platform/interface supports it) and returns immediately. 'data' must stay valid and
 // unmodified until burst_is_complete() reports true -- it's read asynchronously, possibly

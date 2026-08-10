@@ -271,6 +271,23 @@ bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *ou
         int read = i2c_read_blocking(port, io->io.i2c.addr, out, len, false);
         return read == (int)len;
 }
+// the write twin: register address then payload, both under one held START -- the same
+// nostop trick the control-byte writers above use, rather than assembling [reg][data...]
+// into a scratch buffer, which would impose an arbitrary maximum length here
+bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint8_t *data, uint32_t len)
+{
+        i2c_inst_t *port = _i2c_select(io->port_id);
+        int written = i2c_write_blocking(port, io->io.i2c.addr, &reg, 1, true);
+        if(written < 0)
+                return false;
+        // a zero-length write is a bare register-address poke, which is how some devices are
+        // probed for an ACK -- the address write above already did it, so there is nothing
+        // further to send, and issuing a 0-byte transfer would leave the START unterminated
+        if(!len)
+                return true;
+        written = i2c_write_blocking(port, io->io.i2c.addr, data, len, false);
+        return written == (int)len;
+}
 // RP2040 I2C-over-DMA needs the target address folded into each FIFO command word rather
 // than a simple buffer handoff (not exposed as a plain public API by hardware_i2c), which is
 // meaningfully more involved than the SPI case below. rather than build that out now, this is

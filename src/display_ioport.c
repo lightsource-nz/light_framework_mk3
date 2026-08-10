@@ -184,3 +184,18 @@ bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out
                 return false;
         }
 }
+bool light_ioport_write_register(struct io_context *io, uint8_t reg,
+                                                const uint8_t *data, uint32_t len)
+{
+        light_trace("write register: 0x%x, %d bytes", reg, len);
+        switch(io->io_type) {
+        case IO_I2C:
+                return _platform_i2c_write_register(io, reg, data, len);
+        default:
+                // SPI register writes would need a per-controller command framing this layer
+                // has no way to know -- not implemented rather than silently wrong, matching
+                // the read path above
+                light_warn("register write not implemented for I/O context type code: 0x%x", io->io_type);
+                return false;
+        }
+}
