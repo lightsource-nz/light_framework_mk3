@@ -48,6 +48,10 @@ struct spi_state {
         // io_context is set up and held for its whole lifetime -- not claimed/released per
         // transfer. -1 on platforms/interfaces that don't back async sends with DMA
         int dma_channel;
+        // the clock this context last asked the peripheral for, in Hz. defaulted to the
+        // platform's own baud rate at setup, so a caller that never touches it sees no
+        // change (see light_ioport_set_spi_clock())
+        uint32_t clock_hz;
 };
 struct io_context {
         uint8_t io_type;
@@ -104,5 +108,18 @@ extern void light_ioport_send_data_burst_async(struct io_context *io, const uint
 // transfer on the same io_context
 extern bool light_ioport_burst_is_complete(struct io_context *io);
 extern void light_ioport_signal_reset(struct io_context *io);
+// re-clocks the SPI peripheral this context talks through, returning the rate actually
+// achieved (the divider is integer, so it is rarely exactly what was asked for).
+//
+// the honest caveat: this sets the PERIPHERAL's baud rate, not something private to this
+// context -- two devices sharing one SPI port share the clock, and the last caller wins. it
+// is per-context only in the sense that a context is how you name the port. it exists
+// because the alternative is the single global SPI_BAUDRATE, and raising that silently
+// re-clocks every display in the tree including ones on hardware nobody can currently test.
+//
+// panels vary widely in what they tolerate, and too high a clock shows up as corrupt pixels
+// rather than a clean failure, so step it up and look at the glass. no-op on a non-SPI
+// context
+extern uint32_t light_ioport_set_spi_clock(struct io_context *io, uint32_t hz);
 
 #endif

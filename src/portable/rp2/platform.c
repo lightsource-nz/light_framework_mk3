@@ -78,6 +78,22 @@ static spi_inst_t *_spi_select(uint8_t port_id)
         }
 }
 
+uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
+{
+        spi_inst_t *port = _spi_select(io->port_id);
+        if(!port) {
+                light_warn("failed: port id 0x%x is not a valid spi port", io->port_id);
+                return 0;
+        }
+        // the divider is integer, so the achieved rate is generally not the requested one --
+        // report back what the peripheral actually settled on rather than what was asked for
+        uint rate = spi_set_baudrate(port, hz);
+        io->io.spi.clock_hz = rate;
+        light_debug("spi port id 0x%x re-clocked: requested %d Hz, running at %d Hz",
+                        io->port_id, hz, rate);
+        return rate;
+}
+
 void _platform_i2c_port_init(struct io_context *io)
 {
         i2c_inst_t *port;
@@ -119,6 +135,7 @@ void _platform_spi3_port_init(struct io_context *io)
         gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SIO);
         gpio_set_dir(io->io.spi.pin_cs, true);
         uint rate = spi_init(port, SPI_BAUDRATE);
+        io->io.spi.clock_hz = rate;
         // SPI3 sends aren't DMA-backed (see _platform_spi3_send_data_burst_async() below) --
         // -1 makes the "unclaimed" state explicit rather than leaving light_alloc()'s
         // (unzeroed) garbage in place
@@ -143,6 +160,7 @@ void _platform_spi4_port_init(struct io_context *io)
         gpio_set_function(io->io.spi.pin_dc, GPIO_FUNC_SIO);
         gpio_set_dir(io->io.spi.pin_dc, true);
         uint rate = spi_init(port, SPI_BAUDRATE);
+        io->io.spi.clock_hz = rate;
         // claimed once here and held for the io_context's whole lifetime -- not a
         // per-transfer claim/release. this framework has no module teardown path (nothing
         // calls light_module_unregister_periodic_task() meaningfully either), so there's

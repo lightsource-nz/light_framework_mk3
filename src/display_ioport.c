@@ -171,6 +171,19 @@ void light_ioport_signal_reset(struct io_context *io)
 {
         _platform_signal_reset(io);
 }
+uint32_t light_ioport_set_spi_clock(struct io_context *io, uint32_t hz)
+{
+        switch(io->io_type) {
+        case IO_SPI_3P:
+        case IO_SPI_4P:
+                return _platform_spi_set_clock(io, hz);
+        default:
+                // PIO-emulated SPI runs off a state machine clock divider set at program
+                // init, not the SPI peripheral, and I2C has no business here at all
+                light_warn("spi clock not settable for I/O context type code: 0x%x", io->io_type);
+                return 0;
+        }
+}
 bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
 {
         light_trace("read register: 0x%x, %d bytes", reg, len);

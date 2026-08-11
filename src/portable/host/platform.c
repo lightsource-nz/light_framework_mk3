@@ -26,6 +26,14 @@ void _platform_signal_reset(struct io_context *io)
 {
         light_debug("chip reset signaled on port id 0x%x", io->port_id);
 }
+uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
+{
+        // no peripheral to re-clock on the host; report the request back so callers that
+        // check the achieved rate see something sane rather than a failure
+        io->io.spi.clock_hz = hz;
+        light_debug("spi port id 0x%x clock set to %d Hz (host: no-op)", io->port_id, hz);
+        return hz;
+}
 
 void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd)
 {
