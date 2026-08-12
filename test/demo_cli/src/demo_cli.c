@@ -2,12 +2,21 @@
 #include <module/mod_light_cli.h>
 #include <light_cli.h>
 
+#include <stdio.h>
+
 #define CMD_ROOT        NULL
 
 static void demo_cli_app_event(const struct light_module *mod, uint8_t event, void *arg);
 static uint8_t demo_cli_main(struct light_application *app);
 static struct light_cli_invocation_result demo_do_cmd(struct light_cli_invocation *invoke);
-Light_Command_Define(demo_command, CMD_ROOT, "demo_command", "a simple command to demonstrate the light_cli interface",
+// the NAME here has to match the executable's, because a command registered with a NULL
+// parent becomes a child of root_command, and light_cli_process_command_line() matches its
+// first token against argv[0]'s basename. this said "demo_command" while the binary is
+// demo_cli, so argv[0] matched nothing, the target stayed at the unnamed root, and every
+// option lookup then failed against a command that has no options -- which is why this test
+// had never once passed. crush does the same thing correctly: its root command is "crush"
+// and its binary is crush.exe
+Light_Command_Define(demo_command, CMD_ROOT, "demo_cli", "a simple command to demonstrate the light_cli interface",
         demo_do_cmd, 0, 2);
 // three distinctly-named options registered on the same command -- this shape (2+ options,
 // only some of which are actually passed on a given invocation) is what's needed to exercise
@@ -37,10 +46,19 @@ static struct light_cli_invocation_result demo_do_cmd(struct light_cli_invocatio
         // resolving to the wrong (but registered and bound) sibling option instead of correctly
         // reporting "not found"
         bool gamma_set = light_cli_invocation_option_is_set(invoke, "gamma");
-        light_info("option values: alpha='%s' beta='%s' gamma_set=%s",
-                alpha ? alpha : (const uint8_t *)"(null)",
-                beta ? beta : (const uint8_t *)"(null)",
+        // printf, NOT light_info: this line is the program's RESULT, and the regression test
+        // matches on it. every log macro compiles to nothing under RUN_MODE=PRODUCTION
+        // (FILTER_LOG_LEVEL DISABLE), so asserting on a logged line made the test pass or fail
+        // according to the build mode of whatever project happened to include this one --
+        // green in font-crusher's DEBUG build, red in screen-test's PRODUCTION one, for
+        // reasons having nothing to do with the CLI behaviour under test.
+        // fflush because the framework's own output goes through a background queue, and a
+        // test that greps stdout should not depend on the interleaving
+        printf("option values: alpha='%s' beta='%s' gamma_set=%s\n",
+                alpha ? (const char *)alpha : "(null)",
+                beta ? (const char *)beta : "(null)",
                 gamma_set ? "true" : "false");
+        fflush(stdout);
 
         return (struct light_cli_invocation_result) { .code = LIGHT_CLI_RESULT_SUCCESS};
 }
