@@ -116,7 +116,14 @@ extern void _lf_app_event(const struct light_module *module, uint8_t event, void
 
 // framework entry point, enumerates module dependency graph and loads required modules
 extern void light_framework_init();
-extern void light_framework_run(int argc, char *argv[]);
+// runs the loaded application to completion, returning LF_STATUS_SHUTDOWN for a clean run or
+// LF_STATUS_ERROR if any task reported failure -- which is how a command-line application
+// finds out whether its command actually succeeded.
+//
+// a framework status rather than a process exit code on purpose: only some applications have
+// a process to exit from, and mapping one to the other is theirs to decide. embedded callers
+// that never return can carry on ignoring it
+extern uint8_t light_framework_run(int argc, char *argv[]);
 extern void light_framework_load_application(struct light_application *app);
 extern void light_framework_load_module(const struct light_module *mod);
 extern struct light_application *light_framework_get_root_application();

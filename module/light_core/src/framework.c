@@ -179,7 +179,7 @@ void light_framework_init()
 }
 static void light_framework_shutdown();
 // begin execution of all loaded applications and tasks
-void light_framework_run(int argc, char *argv[])
+uint8_t light_framework_run(int argc, char *argv[])
 {
         // first we send all modules the APP_LAUNCH event...
         struct light_event_app_launch event = {
@@ -190,17 +190,23 @@ void light_framework_run(int argc, char *argv[])
         // ...then we begin scheduling application tasks
         struct light_application *app = light_framework_get_root_application();
         uint8_t status = LF_STATUS_RUN;
-        struct light_task *task;
+        struct light_task *task = NULL;
         light_debug("scheduling application tasks...");
         light_debug("one-shot tasks: %d", app_one_shot_task_count);
         for(uint8_t i = 0; i < app_one_shot_task_count; i++) {
                 task = &app_one_shot_tasks[i];
                 light_debug("%s: (%s)", task->name, light_module_get_name(task->owner));
         }
+        // remembered, not just logged. a one-shot task that fails is how a command-line
+        // application reports that its command failed, and until this was tracked the caller
+        // had no way to find out -- crush ran its whole CLI through here and always exited 0,
+        // so a failed `crush font add` could not fail the build that invoked it
+        uint8_t exit_status = LF_STATUS_SHUTDOWN;
         for(uint8_t i = 0; i < app_one_shot_task_count; i++) {
                 task = &app_one_shot_tasks[i];
                 if(task->run(app) == LF_STATUS_ERROR) {
                         light_error("task '%s' returned error status", task->name);
+                        exit_status = LF_STATUS_ERROR;
                 }
         }
         light_debug("scheduling periodic tasks...");
@@ -216,9 +222,19 @@ void light_framework_run(int argc, char *argv[])
                 if(status == LF_STATUS_RUN)
                         light_platform_sleep_ms(LIGHT_TASK_POLL_INTERVAL_MS);
         }
-        light_debug("task %s returned code %s, shutting down",
+        // `task` is only meaningful if a loop above actually ran one; an application with no
+        // tasks at all would otherwise print an uninitialised pointer
+        if(task)
+                light_debug("task %s returned code %s, shutting down",
                                         task->name, light_task_status_string(status));
+        if(status == LF_STATUS_ERROR)
+                exit_status = LF_STATUS_ERROR;
         light_framework_shutdown();
+        // LF_STATUS_SHUTDOWN for a clean run, LF_STATUS_ERROR if any task reported failure.
+        // deliberately a framework status rather than a process exit code: mapping one to the
+        // other is the application's business, and only some applications have a process to
+        // exit from
+        return exit_status;
 }
 
 static void light_framework_shutdown()
