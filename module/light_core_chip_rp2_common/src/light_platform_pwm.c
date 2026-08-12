@@ -87,6 +87,11 @@ void light_platform_pwm_configure(struct lp_pwm *pwm, uint16_t wrap, uint8_t clk
 {
         if(!pwm)
                 return;
+        // re-assert the pin's function, because light_platform_pwm_release_pin() may have
+        // handed it back to SIO since. without this a caller that stops and restarts -- a tone
+        // that ends and sounds again, which is every button click after the first -- would
+        // configure a slice that no longer reaches the pin, and get silence with no error
+        gpio_set_function(pwm->pin, GPIO_FUNC_PWM);
         if(clkdiv < 1)
                 clkdiv = 1;
         pwm_config cfg = pwm_get_default_config();
@@ -200,6 +205,11 @@ bool light_platform_pwm_stream_start(struct lp_pwm *pwm, const uint8_t *duty,
                         duty,
                         count,
                         true);
+        // worth logging: a stream that is configured but silent looks identical to one that
+        // was never submitted, and these four numbers separate the two immediately
+        light_debug("pwm stream on pin %d: %d samples at %dHz (dma ch %d, timer %d, div %d)",
+                        pwm->pin, (int)count, (int)sample_rate,
+                        pwm->dma_channel, pwm->dma_timer, (int)divisor);
         return true;
 }
 
