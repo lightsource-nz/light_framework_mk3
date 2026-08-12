@@ -118,6 +118,8 @@ static void worker__handle_background_message_streams_core1(void);
 #else
 static uint8_t worker__service_message_queues_task(struct light_application *app);
 #endif
+// defined below the workers that mostly use it, but light_stream_shutdown() comes first
+static bool _all_stream_queues_empty();
 void light_stream_setup()
 {
         _find_static_streams();
@@ -157,10 +159,28 @@ void light_stream_shutdown()
 #elif LIGHT_PLATFORM_HAS_MULTICORE_WORKER
         light_core_port_worker_signal_stop();
         light_core_port_worker_join();
+#else
+        // there is no worker to stop here -- the queues are drained by a periodic task, and
+        // the task scheduler has already stopped by the time this runs. Without this branch
+        // everything queued during shutdown is simply discarded, and since the module-unload
+        // logging is emitted immediately before this call, that is precisely the output most
+        // worth keeping.
+        //
+        // service_message_queues() takes at most ONE message per queue per call, so this has
+        // to loop. bounded rather than looping on the predicate alone: a handler that somehow
+        // queued as it drained would otherwise hang the shutdown, and a hang at exit is a
+        // worse failure than a dropped line. the bound is the most the queues can hold
+        for(uint32_t i = 0; i < LIGHT_STREAM_MAX_STREAMS * LIGHT_STREAM_MQUEUE_DEPTH; i++) {
+                if(_all_stream_queues_empty())
+                        break;
+                light_stream_service_message_queues();
+        }
 #endif
 }
 
-#if LIGHT_PLATFORM_HAS_C11_THREADS || LIGHT_PLATFORM_HAS_MULTICORE_WORKER
+// unguarded: all three drain strategies need it now. the two worker loops use it to keep
+// servicing past their stop signal, and light_stream_shutdown() uses it on the single-threaded
+// path where there is no worker to do the draining
 static bool _all_stream_queues_empty()
 {
         for(uint8_t i = 0; i < streams_defined_count; i++) {
@@ -169,7 +189,6 @@ static bool _all_stream_queues_empty()
         }
         return true;
 }
-#endif
 #if LIGHT_PLATFORM_HAS_C11_THREADS
 static int worker__handle_background_message_streams(void *arg)
 {
@@ -355,7 +374,10 @@ bool light_stream_mqueue_is_full(struct light_stream_mqueue *queue)
 
 uint8_t light_stream_get_background_logging_mode(struct light_stream *stream)
 {
-        return stream->mode;
+        // through the shared accessor rather than reading the field directly: the setter just
+        // below is atomic where the platform has threads, and this was the third place with
+        // its own opinion about how to touch `mode`
+        return light_stream_get_mode(stream);
 }
 void light_stream_set_background_logging_mode(struct light_stream *stream, uint8_t mode)
 {

@@ -93,7 +93,11 @@ extern void light_stream_service_message_queues();
 extern void light_stream_init(struct light_stream *stream);
 static inline uint8_t light_stream_get_mode(struct light_stream *stream)
 {
-#ifdef LIGHT_PLATFORM_HAS_C11_THREADS
+// #if, not #ifdef. Every port DEFINES this macro -- to 0 where the feature is absent -- so
+// #ifdef was true everywhere, and this header took the atomic branch on the embedded ports
+// while light_stream_set_background_logging_mode() in stream.c, which tests it with #if, took
+// the plain one. The header and the implementation disagreed about the same field
+#if LIGHT_PLATFORM_HAS_C11_THREADS
         return atomic_load(&stream->mode);
 #else
         return stream->mode;
