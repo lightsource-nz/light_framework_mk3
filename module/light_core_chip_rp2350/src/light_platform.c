@@ -26,9 +26,10 @@ void light_platform_init()
         // light_debug() call
         stdio_init_all();
         alarm_pool_init_default();
-        // core 0 is always the entry point on RP2350 (in Arm Secure mode), so it's simply
-        // hardcoded as "main" here rather than tracked via any actual task/thread handle
-        // (there is no OS scheduler)
+        // core 0 is always the entry point on RP2350, so it's simply hardcoded as "main"
+        // here rather than tracked via any actual task/thread handle (there is no OS
+        // scheduler). true of both of this chip's architectures -- the bootrom starts core 0
+        // whether the image targets the Cortex-M33 pair or the Hazard3 RISC-V pair
         main_task = 0;
         system_time_at_init = light_platform_get_absolute_time_ms();
 }

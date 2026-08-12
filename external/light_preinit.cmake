@@ -12,18 +12,13 @@ if (NOT TARGET _light_preinit_marker)
         if(LIGHT_SYSTEM STREQUAL PICO_SDK)
                 light_declare(PICO_SDK_PATH)
                 if(LIGHT_PLATFORM STREQUAL TARGET)
-                        # pico-sdk doesn't derive PICO_PLATFORM from PICO_BOARD itself (its
-                        # own default is unconditionally rp2040 too -- see
-                        # pico-sdk/cmake/pico_pre_load_platform.cmake), so this has to be
-                        # set explicitly per board. rp2350-arm-s (not a generic "rp2350") is
-                        # the correct value for Pico 2 -- matches what tinyusb's own
-                        # hw/bsp/rp2040/boards/raspberry_pi_pico2/board.cmake sets
-                        if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w
-                                        OR LIGHT_BOARD STREQUAL waveshare_rp2350_touch_lcd_1.69)
-                                set(PICO_PLATFORM rp2350-arm-s)
-                        else()
-                                set(PICO_PLATFORM rp2040)
-                        endif()
+                        # LIGHT_ARCH straight from the cache, not LIGHT_ARCH_REQUESTED: this
+                        # runs before the platform database is loaded at all, so nothing has
+                        # resolved (or overwritten) it yet. the other call site, in
+                        # light_load_pico_sdk_support(), passes LIGHT_ARCH_REQUESTED, which
+                        # is that same cache value captured -- so both feed the mapping the
+                        # user's request rather than anything derived, and cannot disagree
+                        light_resolve_pico_platform(PICO_PLATFORM "${LIGHT_BOARD}" "${LIGHT_ARCH}")
                         set(PICO_BOARD "${LIGHT_BOARD}")
                 elseif(LIGHT_PLATFORM STREQUAL HOST)
                         set(PICO_PLATFORM host)

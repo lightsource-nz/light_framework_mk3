@@ -13,23 +13,21 @@ function(light_load_pico_sdk_support)
         light_declare(PICO_SDK_PATH)
         
         set(_light_pico_host_mingw_workaround OFF)
-        #   TODO there are now a range of possible values for PICO_PLATFORM, and this
-        # variable must be set early in the load before LIGHT_CHIP is selected
+        #   this variable must be set early in the load, before LIGHT_CHIP is selected
         if(LIGHT_PLATFORM STREQUAL TARGET)
-                # this duplicates external/light_preinit.cmake's own board->platform
-                # mapping (a second, separate place PICO_PLATFORM gets set -- this one
-                # runs later, during add_subdirectory(light_framework), overwriting
-                # whatever light_preinit.cmake already resolved right before the
-                # pico_sdk_init() call that actually matters, so it has to agree). same
-                # reasoning applies: pico-sdk doesn't derive PICO_PLATFORM from PICO_BOARD
-                # on its own, and rp2350-arm-s (not generic "rp2350") is the correct value
-                # for Pico 2
-                if(LIGHT_BOARD STREQUAL pico2 OR LIGHT_BOARD STREQUAL pico2_w
-                                OR LIGHT_BOARD STREQUAL waveshare_rp2350_touch_lcd_1.69)
-                        light_set(PICO_PLATFORM rp2350-arm-s)
-                else()
-                        light_set(PICO_PLATFORM rp2040)
-                endif()
+                # the same mapping external/light_preinit.cmake already applied -- this one
+                # runs later, during add_subdirectory(light_framework), overwriting whatever
+                # preinit resolved, right before the pico_sdk_init() call that actually
+                # matters. both go through light_resolve_pico_platform() (cmake/util/) with
+                # the same inputs so that "later one wins" is a no-op rather than a hazard.
+                #
+                # LIGHT_ARCH_REQUESTED, not LIGHT_ARCH: this runs at CMakeLists.txt's
+                # light_load_pico_sdk_support(), still ahead of light_select_board(), so
+                # LIGHT_ARCH holds no resolved value yet either way -- but REQUESTED is the
+                # one guaranteed to still hold what the user asked for
+                light_resolve_pico_platform(_light_pico_platform
+                        "${LIGHT_BOARD}" "${LIGHT_ARCH_REQUESTED}")
+                light_set(PICO_PLATFORM ${_light_pico_platform})
         elseif(LIGHT_PLATFORM STREQUAL HOST)
                 light_set(PICO_PLATFORM host)
                 if(MINGW)

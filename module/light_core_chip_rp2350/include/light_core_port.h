@@ -18,6 +18,12 @@
 // __packed __aligned(4), unlike the empty host-build definition) -- unlike the host_os/
 // pico_hostmode ports, this one must NOT redefine it
 
+// this port serves BOTH of the chip's architectures -- Cortex-M33 and Hazard3 RISC-V, chosen
+// with -DLIGHT_ARCH=riscv32 -- and nothing below is ISA-specific: every primitive here comes
+// from pico-sdk, which supplies the same critical_section/multicore API either way. that is
+// also why light_core.cmake's chip implementation winning over the arch one costs nothing
+// here: there is no arm32_m-specific code this port would be missing out on
+//
 // unlike RP2040's Cortex-M0+, RP2350's Cortex-M33 does have real C11 lock-free atomics
 // (GCC reports __GCC_ATOMIC_CHAR32_T_LOCK_FREE == 2 for it -- see
 // module/light_core_arch_arm32_m/include/light_core_port.h for the general arm32_m

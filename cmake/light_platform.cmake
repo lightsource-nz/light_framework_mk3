@@ -10,6 +10,7 @@ macro(light_platform_on_include)
         light_declare(LIGHT_SELECT_CHIP_HOOKS)
         light_declare(LIGHT_SELECT_BOARD_HOOKS)
         light_declare(LIGHT_ARCH)
+        light_declare(LIGHT_ARCH_REQUESTED)
         light_declare(LIGHT_ARCH_LIB)
         light_declare(LIGHT_CHIP)
         light_declare(LIGHT_CHIP_LIB)
@@ -62,6 +63,24 @@ macro(light_platform_on_include)
         else()
                 light_info("LIGHT_BOARD is set to ${LIGHT_BOARD}")
         endif()
+
+        # most chips have exactly one CPU architecture and this is left empty, in which case
+        # the chip's own declared arch (see light_add_chip()) is used. it exists for chips
+        # that carry more than one -- RP2350 has both Cortex-M33 and Hazard3 RISC-V cores on
+        # the die, and which one an image targets is a build-time choice, not a property of
+        # the board or the chip.
+        #
+        # captured into LIGHT_ARCH_REQUESTED immediately, because LIGHT_ARCH is also an
+        # OUTPUT of this system: light_select_arch() writes the resolved arch back into it.
+        # reading the user's request from LIGHT_ARCH after that point would read whatever the
+        # resolver last decided, so the request has to be saved before anything can overwrite
+        # it
+        set(LIGHT_ARCH "${LIGHT_ARCH}" CACHE STRING
+                "CPU architecture to target, for chips that support more than one")
+        light_set(LIGHT_ARCH_REQUESTED "${LIGHT_ARCH}")
+        if(LIGHT_ARCH_REQUESTED)
+                light_info("LIGHT_ARCH is set to ${LIGHT_ARCH_REQUESTED}")
+        endif()
 endmacro()
 
 macro(light_add_hw_module MODULE)
@@ -85,17 +104,30 @@ macro(light_add_arch ARCH BITS MMU CALLBACK)
                 cmake_language(CALL ${HOOK} ${ARCH})
         endforeach()
 endmacro()
+#   ARCH is the chip's DEFAULT architecture, and for most chips its only one. chips with a
+# second (see light_add_chip_arch() below) still name their default here, so that a build
+# which says nothing about arch keeps targeting whatever it always did
 macro(light_add_chip CHIP ARCH CALLBACK)
         light_debug("added chip ${CHIP}")
         light_declare(LIGHT_CHIP_ARCH__${CHIP})
+        light_declare(LIGHT_CHIP_ARCH_LIST__${CHIP})
         light_declare(LIGHT_CHIP_CALLBACK__${CHIP})
         light_set(LIGHT_CHIP_ARCH__${CHIP} ${ARCH})
+        light_set(LIGHT_CHIP_ARCH_LIST__${CHIP} ${ARCH})
         light_set(LIGHT_CHIP_CALLBACK__${CHIP} ${CALLBACK})
         light_append(LIGHT_CHIP_LIST ${CHIP})
 
         foreach(HOOK IN LISTS LIGHT_ADD_CHIP_HOOKS)
                 cmake_language(CALL ${HOOK} ${CHIP})
         endforeach()
+endmacro()
+#   declares an ADDITIONAL architecture that CHIP can be targeted at, selectable via
+# LIGHT_ARCH. the list is declared and seeded by light_add_chip() rather than here, so that
+# calling this twice for the same chip doesn't trip light_declare()'s multiple-declaration
+# warning
+macro(light_add_chip_arch CHIP ARCH)
+        light_debug("chip ${CHIP} also supports arch ${ARCH}")
+        light_append(LIGHT_CHIP_ARCH_LIST__${CHIP} ${ARCH})
 endmacro()
 macro(light_add_board BOARD CHIP CALLBACK)
         light_debug("added board ${BOARD}")
@@ -125,12 +157,30 @@ macro(light_select_chip CHIP)
         light_set(LIGHT_CHIP ${CHIP})
         light_set(LIGHT_CHIP_LIB chip_${CHIP})
         light_add_hw_module(${LIGHT_CHIP_LIB})
-        
+
         foreach(HOOK IN LISTS LIGHT_SELECT_CHIP_HOOKS)
                 cmake_language(CALL ${HOOK} ${CHIP})
         endforeach()
         cmake_language(CALL ${LIGHT_CHIP_CALLBACK__${CHIP}})
-        light_select_arch(${LIGHT_CHIP_ARCH__${CHIP}})
+
+        set(_LIGHT_CHIP_SELECTED_ARCH ${LIGHT_CHIP_ARCH__${CHIP}})
+        if(LIGHT_ARCH_REQUESTED)
+                if("${LIGHT_ARCH_REQUESTED}" IN_LIST LIGHT_CHIP_ARCH_LIST__${CHIP})
+                        set(_LIGHT_CHIP_SELECTED_ARCH ${LIGHT_ARCH_REQUESTED})
+                else()
+                        # message(FATAL_ERROR) rather than light_fatal(): light_fatal is
+                        # called at the LIGHT_BOARD check in light_platform_on_include()
+                        # above but is defined nowhere -- cmake/util/light_log.cmake defines
+                        # only trace/debug/info/warn/error -- so routing this through it
+                        # would fail with a CMake "Unknown CMake command" instead of the
+                        # message. this is a user-error path and has to actually report
+                        message(FATAL_ERROR
+                                "LIGHT_ARCH is set to '${LIGHT_ARCH_REQUESTED}', which chip "
+                                "${CHIP} does not support. supported: "
+                                "${LIGHT_CHIP_ARCH_LIST__${CHIP}}")
+                endif()
+        endif()
+        light_select_arch(${_LIGHT_CHIP_SELECTED_ARCH})
 endmacro()
 macro(light_select_board BOARD)
         light_info("board set to ${BOARD}")
@@ -174,7 +224,18 @@ macro(light_hook_add_board HOOK)
 endmacro()
 macro(light_hook_select_arch HOOK)
         light_append(LIGHT_SELECT_ARCH_HOOKS ${HOOK})
-        if(DEFINED LIGHT_ARCH)
+        # LIGHT_ARCH_LIB, not "DEFINED LIGHT_ARCH". what this guard needs to ask is "has
+        # light_select_arch() already run", and DEFINED stopped being able to answer that once
+        # LIGHT_ARCH became an input as well as an output: declaring it with
+        # set(... CACHE STRING ...) defines it on EVERY build, empty when no arch was
+        # requested -- the same distinction light_platform_on_include() already spells out for
+        # LIGHT_BOARD above. an empty LIGHT_ARCH called the hook with no argument at all
+        # ("Macro invoked with incorrect arguments"), and a non-empty one would have called it
+        # before the arch was validated against the chip, with no implementations registered
+        # yet -- which light_core_select_arch_hook() reports as "no light_core implementation
+        # found". LIGHT_ARCH_LIB is written only by light_select_arch(), so it means exactly
+        # what this needs to know
+        if(LIGHT_ARCH_LIB)
                 cmake_language(CALL ${HOOK} ${LIGHT_ARCH})
         endif()
 endmacro()
