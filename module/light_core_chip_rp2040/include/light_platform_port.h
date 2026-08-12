@@ -7,5 +7,9 @@
 // message-stream worker runs there instead (see light_core_port_worker_launch() below and its
 // use in light_core/src/stream.c)
 #define LIGHT_PLATFORM_HAS_MULTICORE_WORKER 1
+// PWM blocks ("slices" in RP2 terms), and DMA paced by a DMA timer for streaming duty values
+// into one -- see light_core_chip_rp2_common
+#define LIGHT_PLATFORM_HAS_PWM 1
+#define LIGHT_PLATFORM_HAS_PWM_STREAM 1
 
 #endif

@@ -24,6 +24,8 @@ target_link_libraries(
         pico_stdlib
         pico_sync
         pico_multicore
+        # the PWM platform implementation, shared with the RP2350 port
+        light_core_chip_rp2_common
 )
 target_link_options(
         light_core_chip_rp2040

@@ -14,5 +14,9 @@
 #ifndef LIGHT_PLATFORM_HAS_MULTICORE_WORKER
 #define LIGHT_PLATFORM_HAS_MULTICORE_WORKER 1
 #endif
+// PWM blocks ("slices" in RP2 terms), and DMA paced by a DMA timer for streaming duty values
+// into one -- see light_core_chip_rp2_common
+#define LIGHT_PLATFORM_HAS_PWM 1
+#define LIGHT_PLATFORM_HAS_PWM_STREAM 1
 
 #endif

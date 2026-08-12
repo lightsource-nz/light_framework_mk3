@@ -5,6 +5,9 @@
 #include <stdbool.h>
 
 #include <light_platform_port.h>
+// included here rather than left for consumers to find, so that anything already reaching for
+// light_platform.h gets the PWM API without a second include
+#include <light_platform_pwm.h>
 
 struct lp_timer {
         uint8_t id;
