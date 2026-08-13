@@ -40,9 +40,17 @@ static GPIO_TypeDef *_port_of(uint8_t pin)
         case 2: return GPIOC;
         case 3: return GPIOD;
         case 4: return GPIOE;
+        //   guarded from F upwards, not just from I: a 48-pin F411 has GPIOA-E and GPIOH only,
+        // so an unconditional GPIOF fails to compile rather than degrading
+#ifdef GPIOF
         case 5: return GPIOF;
+#endif
+#ifdef GPIOG
         case 6: return GPIOG;
+#endif
+#ifdef GPIOH
         case 7: return GPIOH;
+#endif
 #ifdef GPIOI
         case 8: return GPIOI;
 #endif
