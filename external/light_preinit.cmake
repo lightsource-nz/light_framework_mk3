@@ -9,7 +9,12 @@ if (NOT TARGET _light_preinit_marker)
 
         include(${LIGHT_INIT_CMAKE_FILE})
 
-        if(LIGHT_SYSTEM STREQUAL PICO_SDK)
+        if(LIGHT_SYSTEM STREQUAL CMSIS)
+                # the consuming project's project() call is what probes the compiler, and this
+                # file runs before it -- which is the whole reason light_preinit.cmake exists
+                include(cmsis)
+                light_cmsis_select_toolchain()
+        elseif(LIGHT_SYSTEM STREQUAL PICO_SDK)
                 light_declare(PICO_SDK_PATH)
                 if(LIGHT_PLATFORM STREQUAL TARGET)
                         # LIGHT_ARCH straight from the cache, not LIGHT_ARCH_REQUESTED: this

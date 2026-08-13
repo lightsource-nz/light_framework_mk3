@@ -155,6 +155,11 @@ do { \
 #define SYSTEM_HOST_OS          1
 #define SYSTEM_PICO_SDK         2
 #define SYSTEM_FREERTOS         3
+// bare CMSIS: the vendor's register definitions, startup and system_*.c, and nothing above
+// them. named for CMSIS rather than for a vendor because that is the whole of what the port
+// depends on -- an ST device pack and a device pack from anyone else present the same
+// core_cm*.h and the same __enable_irq()/__WFI() to the code that sits on top
+#define SYSTEM_CMSIS            4
 
 #define _GET_SYSTEM(system) SYSTEM_## system
 #define GET_SYSTEM(system) _GET_SYSTEM(system)

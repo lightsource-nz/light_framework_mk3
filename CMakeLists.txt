@@ -6,6 +6,12 @@ include(${CMAKE_CURRENT_LIST_DIR}/light_init.cmake)
 include(light_platform)
 if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
         include(pico_sdk)
+elseif(${LIGHT_SYSTEM} STREQUAL CMSIS)
+        # must be before project(): light_cmsis_select_toolchain() sets CMAKE_TOOLCHAIN_FILE,
+        # and CMake probes the compiler during project(). Setting it later is silently ignored
+        # and the build uses the host compiler
+        include(cmsis)
+        light_cmsis_select_toolchain()
 endif()
 
 project(light_framework_mk3 C CXX ASM)
@@ -21,6 +27,13 @@ add_subdirectory(module/light_core_arch_host_os)
 add_subdirectory(module/light_core_chip_rp2_common)
 add_subdirectory(module/light_core_chip_rp2040)
 add_subdirectory(module/light_core_chip_rp2350)
+# only for a CMSIS build: it names the vendored CMSIS sources, and its CMakeLists errors out if
+# those submodules are absent. Guarding it means a HOST or PICO_SDK build of this project needs
+# no CMSIS checkout at all, which is the same courtesy the rp2 ports get from being INTERFACE
+# libraries nothing links on a host build
+if(${LIGHT_SYSTEM} STREQUAL CMSIS)
+        add_subdirectory(module/light_core_chip_stm32f411)
+endif()
 add_subdirectory(module/light_core_board_pico_hostmode)
 # light_cli currently targets terminal-based programs (argv parsing, POSIX-flavored I/O); only
 # built for HOST for now
@@ -30,12 +43,21 @@ endif()
 
 if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
         light_load_pico_sdk_support()
+elseif(${LIGHT_SYSTEM} STREQUAL CMSIS)
+        light_load_cmsis_support()
 endif()
 
 light_info("loading platform support database...")
 add_subdirectory(platform/arch)
 add_subdirectory(platform/chip)
 add_subdirectory(platform/board)
+
+# the one executable a bare-CMSIS build produces, and so the only thing that compiles the
+# STM32F411 port at all -- every module here is an INTERFACE library. added after the platform
+# database, since it links whatever board was selected
+if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL blackpill)
+        add_subdirectory(test/demo_blackpill)
+endif()
 
 # tests
 if(LIGHT_PLATFORM STREQUAL HOST)
