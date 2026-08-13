@@ -1,5 +1,9 @@
 .vscode/*.log
 .vscode/.cortex-debug.*
 build/
+# board-specific trees alongside the default one, e.g. build-pico-hostmode: the pico_hostmode
+# port has its own copy of light_object.c, so testing it needs a second configure rather than
+# a second target in the same tree
+build-*/
 stage/
 CMakeUserPresets.json

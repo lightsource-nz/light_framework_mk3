@@ -77,6 +77,7 @@ if(LIGHT_PLATFORM STREQUAL HOST)
         if(BUILD_TESTING)
                 add_subdirectory(test/demo_cli)
                 add_subdirectory(test/test_light_object)
+                add_subdirectory(test/test_light_object_concurrent)
         endif()
 endif()
 
