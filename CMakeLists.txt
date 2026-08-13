@@ -14,7 +14,6 @@ find_package(Sanitizers)
 
 # modules
 add_subdirectory(module/light_core)
-add_subdirectory(module/light_core_arch_arm32_m)
 add_subdirectory(module/light_core_arch_host_os)
 # before the two chip ports that link it. as an INTERFACE library its own dependencies are
 # only resolved through a consumer, so the Pico SDK targets it names cost a HOST build
