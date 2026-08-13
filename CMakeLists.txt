@@ -5,6 +5,16 @@ if(LIGHT_PLATFORM STREQUAL HOST)
         set(LIGHT_PORT host)
 elseif(LIGHT_SYSTEM STREQUAL PICO_SDK AND LIGHT_PLATFORM STREQUAL TARGET)
         set(LIGHT_PORT rp2)
+elseif(LIGHT_SYSTEM STREQUAL CMSIS AND LIGHT_PLATFORM STREQUAL TARGET)
+        set(LIGHT_PORT stm32)
+else()
+        # an unset LIGHT_PORT used to fall through to src/portable/platform.c, and the error
+        # was CMake reporting a missing source file with an empty directory in the middle of
+        # its path -- which says nothing about the actual problem
+        message(FATAL_ERROR
+                "light_ioport has no platform implementation for LIGHT_SYSTEM=${LIGHT_SYSTEM} "
+                "with LIGHT_PLATFORM=${LIGHT_PLATFORM}. Supported: HOST (any system), "
+                "PICO_SDK/TARGET, CMSIS/TARGET.")
 endif()
 
 target_include_directories(

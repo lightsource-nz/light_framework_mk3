@@ -63,6 +63,18 @@ struct io_context {
         uint8_t pin_reset;
 };
 
+//   PIN NUMBERING IS PLATFORM-SPECIFIC. On RP2 a pin is the flat GPIO number the SDK uses. On
+// STM32 a pin is a (port, pin) pair, and both are packed into the same uint8_t: high nibble is
+// the port index (0=A .. 10=K), low nibble is the pin, 0-15. Write it with the macro rather
+// than as a constant -- 0x4C is not recognisably PE12, and a wrong nibble drives an unrelated
+// pin rather than failing.
+#define LIGHT_IOPORT_PIN_STM32(port_letter, pin_number) \
+        ((uint8_t)(((((port_letter) - 'A') & 0xF) << 4) | ((pin_number) & 0xF)))
+// for a device whose reset line is not on a GPIO at all -- tied to the board's reset, or to a
+// fixed rail. light_ioport_signal_reset() then skips the pulse instead of driving whatever pin
+// the encoding would otherwise decode to
+#define LIGHT_IOPORT_PIN_NONE           0xFF
+
 // unlike the SPI variants, there is no pin_cs here -- I2C addresses its target over the bus
 // itself (see 'addr' below) rather than with a dedicated chip-select line
 extern struct io_context *light_ioport_setup_io_i2c(
