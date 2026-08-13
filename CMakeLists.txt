@@ -65,10 +65,19 @@ if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL mini_stm32h7)
         add_subdirectory(test/demo_mini_stm32h7)
 endif()
 
-# tests
+#   tests. include(CTest) rather than a bare enable_testing(): it defines BUILD_TESTING (ON by
+# default), so a consuming project can switch the tests off without editing this, and it is
+# what screen-test already uses.
+#
+#   HOST only, and the guard is here rather than in each test's CMakeLists so those files are
+# never even reached on a target build. A cross-compiled test binary could not be run to say
+# anything anyway, so `ctest` on a TARGET tree simply finds no tests registered
 if(LIGHT_PLATFORM STREQUAL HOST)
-        enable_testing()
-        add_subdirectory(test/demo_cli)
+        include(CTest)
+        if(BUILD_TESTING)
+                add_subdirectory(test/demo_cli)
+                add_subdirectory(test/test_light_object)
+        endif()
 endif()
 
 light_select_board(${LIGHT_BOARD})
