@@ -28,10 +28,10 @@
 #define LIGHT_STREAM_MQUEUE_DEPTH       24
 #define LIGHT_STREAM_MAX_MSG_LENGTH     160
 
-// no PWM through light_platform yet. light_platform_pwm_open() is absent rather than stubbed,
-// and the device libraries that use it create no device -- the same path a board with no
-// buzzer already takes, so nothing downstream needs a special case. TIM1-5/9-11 are all here
-// when this is worth writing
+// no PWM through light_platform yet. The API is STUBBED (light_core_chip_stm32_common/src/
+// light_platform_pwm.c) rather than absent: its declarations are not guarded, so omitting the
+// definitions fails at link. open() returns NULL, so device libraries create no device -- the
+// path a board with no backlight or buzzer already takes
 #define LIGHT_PLATFORM_HAS_PWM 0
 #define LIGHT_PLATFORM_HAS_PWM_STREAM 0
 

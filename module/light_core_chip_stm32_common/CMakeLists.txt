@@ -19,6 +19,7 @@ target_sources(
         INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/src/light_object.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_platform.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/light_platform_pwm.c
 )
 
 target_link_libraries(
