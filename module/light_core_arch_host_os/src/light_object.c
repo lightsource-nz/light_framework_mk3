@@ -17,25 +17,9 @@
 static bool _registry_loaded = false;
 static struct light_object_registry _registry_default;
 
-static void _registry_critical_enter(struct light_object_registry *reg)
-{
-#ifdef USE_PICO_SPINLOCKS
-        critical_section_enter_blocking(&reg->mutex);
-#endif
-}
-static void _registry_critical_exit(struct light_object_registry *reg)
-{
-#ifdef USE_PICO_SPINLOCKS
-        critical_section_exit(&reg->mutex);
-#endif
-}
-
 void light_core_impl_setup()
 {
         if(!_registry_loaded) {
-#ifdef USE_PICO_SPINLOCKS
-                critical_section_init(&_registry_default.mutex);
-#endif
                 _registry_default.alloc = light_alloc;
                 _registry_default.free = light_free;
                 _registry_loaded = true;
@@ -146,26 +130,14 @@ int light_object_del_reg(struct light_object_registry *reg, struct light_object 
 
 void light_object_init_reg(struct light_object_registry *reg, struct light_object *obj, const struct lobj_type *type)
 {
-#ifdef USE_PICO_SPINLOCKS
-        obj->ref_count = 1;
-#else
         atomic_store(&obj->ref_count, 1);
-#endif
-    obj->type = type;
+        obj->type = type;
 }
 // TODO implement saturation conditions and warnings
 struct light_object *light_object_get_reg(struct light_object_registry *reg, struct light_object *obj)
 {
         struct light_object *ref = obj;
         if(obj) {
-#ifdef USE_PICO_SPINLOCKS
-                critical_section_enter_blocking(&reg->mutex);
-                if(obj->ref_count > 0)
-                        obj->ref_count++;
-                else
-                         ref = NULL;
-                critical_section_exit(&reg->mutex);
-#else
                 //   the desired value is old + 1, NOT a fresh read of ref_count: a second read
                 // can observe an unrelated value, and if the count then returns to `old` the
                 // exchange commits that unrelated value instead of an increment. The exchange
@@ -177,18 +149,11 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
                                 break;
                         }
                 } while (!atomic_compare_exchange_weak(&obj->ref_count, &old, old + 1));
-
-#endif
         }
         return ref;
 }
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-#ifdef USE_PICO_SPINLOCKS
-        critical_section_enter_blocking(&_registry_default.mutex);
-        obj->ref_count--;
-        critical_section_exit(&_registry_default.mutex);
-#else
         //   retry while the exchange FAILS, and stop as soon as it succeeds. Looping on success
         // retries with a now-stale expected value, which decrements twice if another thread
         // restored the count in between; exiting on failure abandons the decrement entirely,
@@ -198,7 +163,6 @@ void light_object_put_reg(struct light_object_registry *reg, struct light_object
                 if(count == 0)
                         return;
         } while (!atomic_compare_exchange_weak(&obj->ref_count, &count, count - 1));
-#endif
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,
