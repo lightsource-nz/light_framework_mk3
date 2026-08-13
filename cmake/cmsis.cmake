@@ -34,7 +34,17 @@ macro(light_cmsis_target_property_hook TARGET PROPERTY VALUE)
         endif()
 endmacro()
 
-function(light_load_cmsis_support)
+#   a macro, NOT a function, and that is load-bearing. light_append() promotes its result with
+# set(... PARENT_SCOPE) only when the DIRECTORY has a parent -- it keys off
+# get_directory_property(PARENT_DIRECTORY), which knows nothing about function scopes. Called
+# as a function from the root CMakeLists, the hook registration would land in the function's
+# own scope and be discarded on return, leaving the global hook list empty by the time any
+# target sets a property.
+#   light_load_pico_sdk_support() in pico_sdk.cmake is a function with the same problem, and is
+# left alone deliberately: nothing depends on its hook, because every RP2 application calls
+# pico_add_extra_outputs() directly, and converting it would change variable scoping across a
+# path that currently works on hardware.
+macro(light_load_cmsis_support)
         message("Loading bare-CMSIS support")
         light_hook_set_target_property_global(light_cmsis_target_property_hook)
-endfunction()
+endmacro()

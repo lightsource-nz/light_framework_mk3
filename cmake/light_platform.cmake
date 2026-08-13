@@ -252,26 +252,53 @@ macro(light_hook_select_board HOOK)
         endif()
 endmacro()
 
-# property value hooks may be global, bound to all properties on a target,
-# or bound to a specific property on a specific target
-macro(light_hook_set_target_property_fine TARGET HOOK)
-        light_append(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET}__${PROPERTY} ${HOOK})
+#   property value hooks may be global, bound to all properties on a target, or bound to a
+# specific property on a specific target.
+#
+#   NOTE the declare-then-append order below. light_append() warns "attempted to write to
+# undeclared shared variable" and does nothing when the variable it is given has not been
+# declared, so appending first meant a hook registered through either of the per-target
+# entry points was silently dropped.
+macro(light_hook_set_target_property_fine TARGET PROPERTY HOOK)
+        #   PROPERTY is a parameter now. It used to reference ${PROPERTY} without taking it,
+        # so the name expanded with whatever PROPERTY happened to hold in the caller's scope --
+        # empty, normally. Hooks therefore registered under a key ending in "__" that the
+        # lookup in light_target_set_property() could never produce, and never fired
         light_declare(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET}__${PROPERTY})
+        light_append(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET}__${PROPERTY} ${HOOK})
 endmacro()
 macro(light_hook_set_target_property TARGET HOOK)
-        light_append(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET} ${HOOK})
         light_declare(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET})
+        light_append(LIGHT_TARGET_PROPERTY_HOOKS__${TARGET} ${HOOK})
 endmacro()
 macro(light_hook_set_target_property_global HOOK)
+        # declared by light_platform_on_include(), so no light_declare() here
         light_append(LIGHT_TARGET_PROPERTY_HOOKS_GLOBAL ${HOOK})
 endmacro()
 
 macro(light_target_set_property TARGET PROPERTY VALUE)
-        set(LIGHT_TARGET_PROPERTY__${TARGET}__${PROPERTY} ${VALUE})
-        light_register_common_scope_var(LIGHT_TARGET_PROPERTY__${TARGET}__${PROPERTY})
-        light_promote_common_scope_vars()
+        #   this used to call light_register_common_scope_var() and
+        # light_promote_common_scope_vars(), neither of which is defined anywhere in the
+        # project -- so the first use of this macro died with "Unknown CMake command" rather
+        # than setting anything. What they were reaching for already exists: the shared-var
+        # mechanism in cmake/util/light_var.cmake, which is what carries a value out of the
+        # directory scope that set it.
+        #   declared only once, because setting the same property twice is legitimate and
+        # light_declare() warns on redeclaration
+        set(_ltsp_var LIGHT_TARGET_PROPERTY__${TARGET}__${PROPERTY})
+        if(NOT ${_ltsp_var} IN_LIST LIGHT_SHARED_VARS)
+                light_declare(${_ltsp_var})
+        endif()
+        light_set(${_ltsp_var} ${VALUE})
+        light_promote_shared_vars()
 
-        foreach(HOOK IN LISTS LIGHT_TARGET_PROPERTY_HOOKS__GLOBAL)
+        # LIGHT_TARGET_PROPERTY_HOOKS_GLOBAL, with one underscore before GLOBAL. This read
+        # LIGHT_TARGET_PROPERTY_HOOKS__GLOBAL, which nothing ever writes -- the registration
+        # macro above appends to the single-underscore name. That mismatch is why a global
+        # hook never fired even once the missing functions above are accounted for, and it is
+        # the reason every RP2 application calls pico_add_extra_outputs() directly instead of
+        # going through this
+        foreach(HOOK IN LISTS LIGHT_TARGET_PROPERTY_HOOKS_GLOBAL)
                 cmake_language(CALL ${HOOK} ${TARGET} ${PROPERTY} ${VALUE})
         endforeach()
         foreach(HOOK IN LISTS LIGHT_TARGET_PROPERTY_HOOKS__${TARGET})

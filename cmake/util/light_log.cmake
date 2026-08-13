@@ -35,4 +35,17 @@ macro(light_error MESSAGE)
         light_log(ERROR "${MESSAGE}")
 endmacro()
 
+
+#   stops the configure, which none of the levels above do -- light_error() only prints.
+# Called by light_platform_on_include()'s missing-LIGHT_BOARD check since long before this
+# existed, where it would have failed with "Unknown CMake command light_fatal" instead of the
+# message it was written to give. A diagnostic path that itself fails is worse than no
+# diagnostic, because the error it reports is about the wrong thing entirely.
+#   takes ${ARGV} rather than a single MESSAGE parameter: that same call site passes three
+# adjacent string literals, and a one-parameter macro would print the first and silently drop
+# the rest. Joined with no separator, since the strings already carry their own trailing spaces.
+macro(light_fatal)
+        string(JOIN "" _light_fatal_message ${ARGV})
+        message(FATAL_ERROR "FATAL: ${_light_fatal_message}")
+endmacro()
 light_log_on_include()

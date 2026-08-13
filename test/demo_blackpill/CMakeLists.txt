@@ -14,12 +14,10 @@ target_link_libraries(
         light_core
 )
 
-#   called directly rather than through light_target_set_property(demo_blackpill
-# application_target 1), which is what the hook in cmake/cmsis.cmake was written for. That
-# function is broken: it calls light_register_common_scope_var() and
-# light_promote_common_scope_vars(), neither of which exists anywhere in the project, so it
-# fails with "Unknown CMake command" the first time anything uses it.
-#   Every RP2 application does the same thing for the same reason -- see the direct
-# pico_add_extra_outputs() calls in screen-test's apps, which is why the hook has never been
-# exercised. The hook stays wired up in cmsis.cmake so it starts working if that is ever fixed
-light_cmsis_add_extra_outputs(demo_blackpill)
+#   goes through the property hook rather than calling light_cmsis_add_extra_outputs()
+# directly, which is what the hook in cmake/cmsis.cmake was always meant for. It was
+# unusable until the fixes in light_platform.cmake -- light_target_set_property() called two
+# functions that do not exist, and the global hook list was read under a different name from
+# the one it is written to -- so this is also what proves that machinery works: if the hook
+# does not fire, no .bin and no .hex appear
+light_target_set_property(demo_blackpill application_target 1)
