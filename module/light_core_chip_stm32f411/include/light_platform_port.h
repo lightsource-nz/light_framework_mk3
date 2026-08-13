@@ -28,11 +28,12 @@
 #define LIGHT_STREAM_MQUEUE_DEPTH       24
 #define LIGHT_STREAM_MAX_MSG_LENGTH     160
 
-// no PWM through light_platform yet. The API is STUBBED (light_core_chip_stm32_common/src/
-// light_platform_pwm.c) rather than absent: its declarations are not guarded, so omitting the
-// definitions fails at link. open() returns NULL, so device libraries create no device -- the
-// path a board with no backlight or buzzer already takes
-#define LIGHT_PLATFORM_HAS_PWM 0
+//   PWM via the timers, implemented in light_core_chip_stm32_common. The F411's pin table
+// there covers TIM1 on PA8-PA11 only -- nothing on this board drives PWM yet, so it is the
+// minimum coherent set rather than an exhaustive one, and a pin outside it returns NULL from
+// open() rather than guessing a mapping.
+//   No streaming (PWM-as-DAC) on either STM32 port yet.
+#define LIGHT_PLATFORM_HAS_PWM 1
 #define LIGHT_PLATFORM_HAS_PWM_STREAM 0
 
 #endif

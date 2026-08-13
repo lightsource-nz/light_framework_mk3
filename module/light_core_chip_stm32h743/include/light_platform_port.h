@@ -6,10 +6,12 @@
 // STM32H743 is single-core (the dual-core part is the H745/H747). No second core for the
 // message-stream worker, so light_stream_setup() takes its synchronous drain path
 #define LIGHT_PLATFORM_HAS_MULTICORE_WORKER 0
-// no PWM through light_platform yet, as on the F411 port. The API is STUBBED in
-// light_core_chip_stm32_common rather than absent -- its declarations are unguarded, so
-// omitting the definitions fails at link. open() returns NULL, so no device is created
-#define LIGHT_PLATFORM_HAS_PWM 0
+//   PWM via the timers, implemented in light_core_chip_stm32_common. Pin-to-timer is a table
+// there rather than a formula -- the STM32 mapping is an arbitrary matrix per part -- so a pin
+// outside it returns NULL from open(), which every consumer already handles.
+//   No streaming (PWM-as-DAC): that needs DMA paced into the compare register, which nothing
+// on these boards has asked for yet.
+#define LIGHT_PLATFORM_HAS_PWM 1
 #define LIGHT_PLATFORM_HAS_PWM_STREAM 0
 
 //   the queue-sizing defaults are LEFT ALONE here, unlike on the F411. This part has 1MB of
