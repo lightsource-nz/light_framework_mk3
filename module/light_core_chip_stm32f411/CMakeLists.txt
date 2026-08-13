@@ -32,8 +32,9 @@ target_include_directories(
 target_sources(
         light_core_chip_stm32f411
         INTERFACE
-        ${CMAKE_CURRENT_LIST_DIR}/src/light_object.c
-        ${CMAKE_CURRENT_LIST_DIR}/src/light_platform.c
+        # light_object.c and light_platform.c live in light_core_chip_stm32_common: they are
+        # CMSIS-core only and identical on every STM32. console.c stays here because the USART
+        # register interface is family-specific
         ${CMAKE_CURRENT_LIST_DIR}/src/console.c
         # ST's, not ours. system_stm32f4xx.c maintains SystemCoreClock, which
         # light_platform_init() derives the SysTick reload from; the startup file provides the
@@ -93,4 +94,5 @@ target_link_libraries(
         light_core_chip_stm32f411
         INTERFACE
         light_core
+        light_core_chip_stm32_common
 )

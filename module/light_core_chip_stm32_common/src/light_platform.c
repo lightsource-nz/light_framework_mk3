@@ -3,7 +3,6 @@
         #error "this file should only be compiled for a bare-CMSIS target"
 #endif
 
-#include <stm32f4xx.h>
 
 #define LIGHT_PLATFORM_MAX_TIMERS       8
 #define _INSTANCE_INVALID               16
@@ -24,7 +23,7 @@ static uint32_t system_time_at_init;
 static volatile uint32_t _tick_ms;
 
 //   SysTick's own handler. named exactly this because that is the symbol ST's
-// startup_stm32f411xe.s puts in the vector table -- it declares a weak default that spins
+// the chip port's startup file puts in the vector table -- it declares a weak default that spins
 // forever, and this strong definition replaces it at link time. get the name wrong and there
 // is no error: the weak stub stays, the tick never advances, and every timeout in the system
 // waits forever.
@@ -35,7 +34,7 @@ void SysTick_Handler(void)
 
 void light_platform_init()
 {
-        //   SystemCoreClock is maintained by CMSIS's system_stm32f4xx.c, and reflects whatever
+        //   SystemCoreClock is maintained by CMSIS's system_stm32*.c, and reflects whatever
         // clock configuration is actually in force -- HSI at 16MHz out of reset, unless a board
         // hook has since reconfigured the PLL and called SystemCoreClockUpdate(). deriving the
         // reload from it rather than from a hardcoded frequency is what keeps the millisecond

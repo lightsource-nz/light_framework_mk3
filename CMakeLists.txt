@@ -32,7 +32,10 @@ add_subdirectory(module/light_core_chip_rp2350)
 # no CMSIS checkout at all, which is the same courtesy the rp2 ports get from being INTERFACE
 # libraries nothing links on a host build
 if(${LIGHT_SYSTEM} STREQUAL CMSIS)
+        # before the chip ports that link it, as with light_core_chip_rp2_common above
+        add_subdirectory(module/light_core_chip_stm32_common)
         add_subdirectory(module/light_core_chip_stm32f411)
+        add_subdirectory(module/light_core_chip_stm32h743)
 endif()
 add_subdirectory(module/light_core_board_pico_hostmode)
 # light_cli currently targets terminal-based programs (argv parsing, POSIX-flavored I/O); only
@@ -57,6 +60,9 @@ add_subdirectory(platform/board)
 # database, since it links whatever board was selected
 if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL blackpill)
         add_subdirectory(test/demo_blackpill)
+endif()
+if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL mini_stm32h7)
+        add_subdirectory(test/demo_mini_stm32h7)
 endif()
 
 # tests

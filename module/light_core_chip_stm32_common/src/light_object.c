@@ -1,6 +1,6 @@
 /*
  *  light_object.c
- *  core definitions for the light object model, STM32F411 (bare CMSIS)
+ *  core definitions for the light object model, STM32 (bare CMSIS)
  *
  *  authored by Alex Fulton
  *  created august 2026
