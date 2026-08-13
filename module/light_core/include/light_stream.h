@@ -3,26 +3,47 @@
 
 #include <stdarg.h>
 
+//   for the two sizing macros below, both of which a port may override. Included here rather
+// than left to light.h's ordering: light.h pulls in light_stream.h BEFORE light_platform.h,
+// so a value defined only in the port header would arrive too late to have any effect. This
+// header is nothing but #defines and is guarded, so including it twice costs nothing
+#include <light_platform_port.h>
+
 // only the 'fast' and 'faster' message types are handled by this facility
 #define LIGHT_MSG_FAST                    0
 #define LIGHT_MSG_FASTER                  1
 
 // TODO the mqueue interface can probably be excluded from the public API
-// on a single-core drain path (see light_stream_setup()'s LIGHT_PLATFORM_HAS_MULTICORE_WORKER=0
-// branch), filling this queue during synchronous boot is a hard deadlock -- nothing else
-// can run to drain it. 32 was enough for the base framework boot sequence alone, but not
-// once a board's hardware-init callback does enough of its own logging during device
-// creation on top of that -- bumped for headroom; cost is trivial (32 extra 257-byte
-// slots per stream) on every platform this runs on
+//
+//   HOW TO SIZE THIS, because getting it wrong is a hang rather than a diagnostic. On a
+// single-core drain path (LIGHT_PLATFORM_HAS_MULTICORE_WORKER=0) a full queue is a HARD
+// DEADLOCK: mqueue_claim_slot() waits on light_condition_wait() for a drain that only the
+// main loop can perform, and the main loop is the thing currently blocked filling it.
+//   What has to fit is not the whole boot log but the longest run BETWEEN drains.
+// light_framework_run() calls light_stream_service_message_queues() at four points, and the
+// longest unbroken run is the first: framework init through _load_static_objects(), which is
+// where every module-load event and the board's own hardware-init logging lands. Measured,
+// that segment is about 10 messages for a minimal application and about 25 for a board that
+// brings up a display, touch, IMU, backlight and audio.
+//   64 is the default for exactly that reason: 32 covered the base framework boot but not a
+// board doing real device creation on top of it. Ports with RAM to spare should leave it
+// alone -- the cost is trivial on a part with hundreds of KB, and the failure mode is not.
+#ifndef LIGHT_STREAM_MQUEUE_DEPTH
 #define LIGHT_STREAM_MQUEUE_DEPTH             64
+#endif
 
-// max length of a fully-formatted message, including the trailing NUL. every message
+//   max length of a fully-formatted message, including the trailing NUL. every message
 // is formatted directly into its queue slot at enqueue time (see light_stream_mqueue_add_fast()/
 // _add_faster() in stream.c) -- there is no heap allocation anywhere in this pipeline,
 // since a queue's total storage is fixed-size and pre-allocated for the life of its
 // owning stream, which matters on platforms where the heap is small/fragmentable or
-// simply absent
+// simply absent.
+//   Safer to reduce than the depth is: this one truncates a long line, where the depth
+// deadlocks. Total queue storage per stream is DEPTH * (MAX_MSG_LENGTH + 1) bytes, and there
+// is one queue per stream
+#ifndef LIGHT_STREAM_MAX_MSG_LENGTH
 #define LIGHT_STREAM_MAX_MSG_LENGTH        256
+#endif
 
 struct light_message {
         uint8_t flags;
