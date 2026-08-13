@@ -43,6 +43,21 @@ void light_platform_init()
         SystemCoreClockUpdate();
         SysTick_Config(SystemCoreClock / 1000U);
 
+        //   KEEP THE DEBUG INTERFACE ALIVE ACROSS __WFI(). Both light_platform_sleep_ms() and
+        // light_core_port_condition_wait() idle in WFI, and by default the debug unit's clock
+        // stops with the core -- so a running application becomes unreachable over SWD, with
+        // openocd reporting "Cortex-M CPUID: 0x0 is unrecognized" as though the part were dead.
+        // Connecting under reset still works, which is the tell: the silicon is fine, the debug
+        // clock is simply off.
+        //   Costs some idle current, which is the right trade on a development board and the
+        // same thing ST's own tooling does. The bit names differ by family because the H7 gates
+        // per power domain where the F4 has a single sleep bit.
+#if defined(STM32H743xx)
+        DBGMCU->CR |= DBGMCU_CR_DBG_SLEEPD1 | DBGMCU_CR_DBG_STOPD1 | DBGMCU_CR_DBG_STANDBYD1;
+#elif defined(STM32F411xE)
+        DBGMCU->CR |= DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_STANDBY;
+#endif
+
         //   before anything can want to log. light_core/src/stream.c prints during its own
         // setup, which runs after this, so a console brought up any later would silently drop
         // the framework's first few lines -- the ones that say what it found.
