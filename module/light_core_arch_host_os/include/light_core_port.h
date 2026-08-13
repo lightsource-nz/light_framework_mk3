@@ -7,9 +7,9 @@
 
 #define __static_descriptor
 #define __static_buffer
-#define __static_module __attribute__ ((section(".light.static_module")))
-#define __static_stream __attribute__ ((section(".light.static_stream")))
-#define __static_object __attribute__ ((section(".light.static")))
+#define __static_module __attribute__ ((used, section(".light.static_module")))
+#define __static_stream __attribute__ ((used, section(".light.static_stream")))
+#define __static_object __attribute__ ((used, section(".light.static")))
 
 // at least as of now, all host platforms can be assumed to have hardware atomics
 // and an implementation of at least the C11 atomic types

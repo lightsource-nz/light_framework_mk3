@@ -9,9 +9,9 @@
 
 #define __static_descriptor
 #define __static_buffer
-#define __static_module __attribute__ ((section(".light.static_module")))
-#define __static_stream __attribute__ ((section(".light.static_stream")))
-#define __static_object __attribute__ ((section(".light.static")))
+#define __static_module __attribute__ ((used, section(".light.static_module")))
+#define __static_stream __attribute__ ((used, section(".light.static_stream")))
+#define __static_object __attribute__ ((used, section(".light.static")))
 // pico-sdk defines this for the RP2 ports; on a bare-CMSIS target there is no vendor header
 // that would, so it is defined here. a real __packed __aligned(4) rather than the host build's
 // empty definition, since this one describes structures that are actually laid out in flash

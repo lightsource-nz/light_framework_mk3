@@ -9,9 +9,9 @@
 
 #define __static_descriptor
 #define __static_buffer
-#define __static_module __attribute__ ((section(".light.static_module")))
-#define __static_stream __attribute__ ((section(".light.static_stream")))
-#define __static_object __attribute__ ((section(".light.static")))
+#define __static_module __attribute__ ((used, section(".light.static_module")))
+#define __static_stream __attribute__ ((used, section(".light.static_stream")))
+#define __static_object __attribute__ ((used, section(".light.static")))
 #define __packed_aligned __attribute__ ((packed, aligned(4)))
 
 // Cortex-M7 has LDREX/STREX and real lock-free C11 atomics. As on the F411 port, light_ref_t

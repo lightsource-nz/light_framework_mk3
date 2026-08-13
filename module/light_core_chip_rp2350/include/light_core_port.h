@@ -11,9 +11,9 @@
 
 #define __static_descriptor __in_flash(".descriptors")
 #define __static_buffer
-#define __static_module __attribute__ ((section(".light.static_module")))
-#define __static_stream __attribute__ ((section(".light.static_stream")))
-#define __static_object __attribute__ ((section(".light.static")))
+#define __static_module __attribute__ ((used, section(".light.static_module")))
+#define __static_stream __attribute__ ((used, section(".light.static_stream")))
+#define __static_object __attribute__ ((used, section(".light.static")))
 // __packed_aligned is already defined by pico-sdk's own <pico/platform.h> (as a real
 // __packed __aligned(4), unlike the empty host-build definition) -- unlike the host_os/
 // pico_hostmode ports, this one must NOT redefine it

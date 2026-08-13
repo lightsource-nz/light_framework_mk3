@@ -94,6 +94,17 @@ struct light_static_object {
         .app_main = _main \
 }
 
+//   `this_module` below is `static`, never referenced, and exists only to be FOUND BY A
+// LINKER-SECTION WALK -- _find_static_modules() iterates .light.static_module between
+// __light_modules_start and __light_modules_end. Nothing in C refers to it, so a compiler is
+// entitled to delete it, and at -O1 and above GCC does exactly that. The section attribute
+// does not prevent this; only `used` does, which is why every port's __static_module carries
+// it (see any light_core_port.h).
+//   This was silently broken on RP2040/RP2350 for as long as they have built at -Og: the
+// touch board reported "located 0 static modules" while the same source found 2 on a target
+// that happened to build at -O0. Light_Stream_Define() escaped it only because its pointer has
+// EXTERNAL linkage, which the compiler must emit -- which is why .light.stream was populated
+// in the very same images where .light.module was empty.
 #define Light_Application_Define(name, event, main, ...) \
         static struct light_application __this_app = Light_Application(#name, event, main, __VA_ARGS__); \
         static struct light_module __static_module *this_module = &__this_app.module; \

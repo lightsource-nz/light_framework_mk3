@@ -7,9 +7,9 @@
 
 #define __static_descriptor
 #define __static_buffer
-#define __static_module __attribute__ ((section(".light.static_module")))
-#define __static_stream __attribute__ ((section(".light.static_stream")))
-#define __static_object __attribute__ ((section(".light.static")))
+#define __static_module __attribute__ ((used, section(".light.static_module")))
+#define __static_stream __attribute__ ((used, section(".light.static_stream")))
+#define __static_object __attribute__ ((used, section(".light.static")))
 
 // pico_hostmode runs as a normal OS process on top of pico-sdk's host stubs (PICO_PLATFORM=host),
 // not on bare-metal RP2040 hardware, so (unlike light_core_chip_rp2040) C11 threads and atomics
