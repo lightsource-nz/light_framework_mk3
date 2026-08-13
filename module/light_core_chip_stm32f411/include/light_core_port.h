@@ -57,6 +57,11 @@ extern void light_core_port_mutex_unlock(light_mutex_t *mutex);
 
 extern void light_core_port_condition_wait(light_condition_t *cond, light_mutex_t *mutex);
 
+// brings up the USART console that newlib's _write() (and therefore every printf(), and
+// therefore light_core's whole stream path) writes to. Called from light_platform_init()
+// before anything can log -- see console.c
+extern void light_core_port_console_init(void);
+
 struct light_object_registry {
         light_mutex_t mutex;
         void *(*alloc)(size_t);

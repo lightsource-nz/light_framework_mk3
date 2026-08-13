@@ -34,6 +34,7 @@ target_sources(
         INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/src/light_object.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_platform.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/console.c
         # ST's, not ours. system_stm32f4xx.c maintains SystemCoreClock, which
         # light_platform_init() derives the SysTick reload from; the startup file provides the
         # vector table, Reset_Handler, and the weak default handlers that SysTick_Handler in

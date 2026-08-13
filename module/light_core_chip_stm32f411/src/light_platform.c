@@ -44,6 +44,12 @@ void light_platform_init()
         SystemCoreClockUpdate();
         SysTick_Config(SystemCoreClock / 1000U);
 
+        //   before anything can want to log. light_core/src/stream.c prints during its own
+        // setup, which runs after this, so a console brought up any later would silently drop
+        // the framework's first few lines -- the ones that say what it found.
+        //   the RP2 ports do the same thing with stdio_init_all() a few lines up from here
+        light_core_port_console_init();
+
         // there is one core and no scheduler, so "main" is simply the only context there is
         main_task = 0;
         system_time_at_init = light_platform_get_absolute_time_ms();
