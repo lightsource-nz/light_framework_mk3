@@ -204,7 +204,13 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
         critical_section_enter_blocking(&reg->mutex);
-        obj->ref_count--;
+        //   guarded, mirroring the test get() already makes: on an unsigned count 0 - 1 is not
+        // a small negative number but ~4 billion, which leaves a released object looking
+        // permanently alive and impossible to release again. The critical section makes the
+        // read-modify-write atomic; it says nothing about whether the value should be
+        // decremented at all
+        if(obj->ref_count > 0)
+                obj->ref_count--;
         critical_section_exit(&reg->mutex);
 }
 

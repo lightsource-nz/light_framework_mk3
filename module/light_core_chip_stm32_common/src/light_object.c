@@ -190,7 +190,13 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
         light_mutex_do_lock(&reg->mutex);
-        obj->ref_count--;
+        //   guarded, mirroring the test get() already makes: on an unsigned count 0 - 1 is not
+        // a small negative number but ~4 billion, which leaves a released object looking
+        // permanently alive and impossible to release again. The mutex makes the
+        // read-modify-write atomic; it says nothing about whether the value should be
+        // decremented at all
+        if(obj->ref_count > 0)
+                obj->ref_count--;
         light_mutex_do_unlock(&reg->mutex);
 }
 
