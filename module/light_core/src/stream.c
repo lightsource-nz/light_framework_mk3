@@ -38,7 +38,11 @@ static void _stream_event_add(struct light_object *obj, struct light_object *chi
 }
 static int msg_stdout(struct light_stream *stream, const char *restrict message)
 {
-        printf(message);
+        //   "%s", message -- NOT printf(message). Passing a message as the format string makes
+        // every '%' in it a conversion, so a log line quoting a format or a percentage reads
+        // arguments that were never passed. It also truncated long lines on RP2, where this
+        // reaches pico-sdk's stdio through a 128-byte working buffer
+        printf("%s", message);
 }
 static int msg_stdout_va(struct light_stream *stream, const char *restrict format, va_list args)
 {
@@ -54,10 +58,11 @@ static int msg_stdout_v(struct light_stream *stream, const char *restrict format
 static int msg_stderr(struct light_stream *stream, const char *restrict message)
 {
 // TODO add this macro to light_platform
+        // "%s", message -- see msg_stdout() for why this must not pass the message as a format
 #if (LIGHT_PLATFORM_HAS_STDERR)
-        fprintf(stderr, message);
+        fprintf(stderr, "%s", message);
 #else
-        printf(message);
+        printf("%s", message);
 #endif
 }
 static int msg_stderr_va(struct light_stream *stream, const char *restrict format, va_list args)
