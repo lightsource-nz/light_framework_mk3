@@ -113,6 +113,16 @@
 #define LIGHT_LOG_BUFFER_PRI_SIZE 256
 #define LIGHT_LOG_BUFFER_SEC_SIZE 256
 
+//   formats "[  LEVEL] func: message\n" into `out`, never writing more than `size` bytes, and
+// returns the length written. Both logging paths go through it.
+//
+//   exposed rather than static so its bounds can be tested directly: a caller can surround the
+// buffer with guard bytes and check they survive. That cannot be established from the log
+// output, because the final clamp yields a well-formed line even when an earlier step has
+// already written out of bounds -- and this toolchain has no sanitizer to catch the difference
+extern size_t light_log_format(uint8_t *out, size_t size, const uint8_t level,
+                                const uint8_t *func, const uint8_t *format, va_list args);
+
 // TODO initially the default stream for INFO and lower levels is stdout, with WARN and ERROR going to stderr.
 // but these defaults should probably be made configurable
 #if (LIGHT_MAX_LOG_LEVEL >= LOG_TRACE)

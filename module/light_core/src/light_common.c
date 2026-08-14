@@ -121,7 +121,13 @@ void light_log_internal(struct light_stream *stream, const uint8_t level, const 
 //
 //   writing straight into the destination also retires the second 256-byte scratch buffer each
 // of them kept on the stack, which is worth having back on a target
-static size_t _log_format(uint8_t *out, size_t size, const uint8_t level, const uint8_t *func,
+//   deliberately not static, and declared in light_common.h: it is the only part of this file
+// whose correctness is about staying inside a buffer, and there is no sanitizer on this
+// toolchain to catch it escaping. Reachable by name, a test can hand it a buffer with guard
+// bytes either side and check they survive -- which the observable output cannot show, because
+// the final clamp below produces a well-formed line even when an earlier step has already
+// written out of bounds
+size_t light_log_format(uint8_t *out, size_t size, const uint8_t level, const uint8_t *func,
                                 const uint8_t *format, va_list args)
 {
         if(size < 2)
@@ -155,14 +161,14 @@ static void _log_synchronous(struct light_stream *stream, const uint8_t level, c
 {
         uint8_t log_buffer[LIGHT_LOG_BUFFER_SEC_SIZE];
 
-        _log_format(log_buffer, sizeof(log_buffer), level, func, format, args);
+        light_log_format(log_buffer, sizeof(log_buffer), level, func, format, args);
         stream->handler(stream, log_buffer);
 }
 static void _log_fast(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
 {
         uint8_t log_buffer[LIGHT_LOG_BUFFER_SEC_SIZE];
 
-        _log_format(log_buffer, sizeof(log_buffer), level, func, format, args);
+        light_log_format(log_buffer, sizeof(log_buffer), level, func, format, args);
         // light_stream_mqueue_add_fast() copies this into the queue slot itself -- no
         // heap allocation needed here (log_buffer is a local stack buffer)
         light_stream_mqueue_add_fast(&stream->lock, &stream->queue, log_buffer);
