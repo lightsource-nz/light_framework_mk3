@@ -103,40 +103,69 @@ void light_log_internal(struct light_stream *stream, const uint8_t level, const 
                 break;
         }
 }
+//   formats "[  LEVEL] func: message\n" into `out`, returning the length written. Shared by the
+// synchronous and queued log paths, which were near-identical copies of this and carried the
+// same three bounds bugs between them:
+//
+//   - the bound handed to strncat() was a whole BUFFER SIZE. strncat's third argument is how
+//     many characters it may add on top of what the destination already holds, and it writes a
+//     terminator after them -- so passing 256 into a 256-byte buffer that already held the
+//     prefix could write past the end. That is what -Wstringop-overflow reported.
+//   - the return of strncat() was assigned to a `cursor` in the belief that it pointed past the
+//     text. strncat returns the DESTINATION, so cursor never advanced, and every "space
+//     remaining" expression derived from it evaluated to the entire buffer.
+//   - the trailing strcat(cursor, "\n") was unbounded.
+//
+//   the two copies had also drifted: _log_fast picked the LARGER of the two buffer sizes where
+// _log_synchronous picked the smaller, an inversion invisible only because both are 256.
+//
+//   writing straight into the destination also retires the second 256-byte scratch buffer each
+// of them kept on the stack, which is worth having back on a target
+static size_t _log_format(uint8_t *out, size_t size, const uint8_t level, const uint8_t *func,
+                                const uint8_t *format, va_list args)
+{
+        if(size < 2)
+                return 0;
+
+        //   snprintf reports what it WANTED to write, which may exceed the buffer, so every
+        // result is clamped to what actually landed before it is used as an offset
+        int written = snprintf(out, size, "[%7s] %s: ", light_log_level_to_string(level), func);
+        size_t used = (written < 0) ? 0 : (size_t) written;
+        if(used > size - 1)
+                used = size - 1;
+
+        written = vsnprintf(out + used, size - used, format, args);
+        if(written > 0) {
+                used += (size_t) written;
+                if(used > size - 1)
+                        used = size - 1;
+        }
+
+        //   room is always kept for the newline and the terminator, so an over-long message
+        // gives up its last character rather than its line ending -- a truncated entry that
+        // lost the '\n' would run straight into the next one. size >= 2 is checked above, so
+        // size - 2 cannot underflow
+        if(used > size - 2)
+                used = size - 2;
+        out[used++] = '\n';
+        out[used] = '\0';
+        return used;
+}
 static void _log_synchronous(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
 {
-        uint8_t log_buffer_pri[LIGHT_LOG_BUFFER_PRI_SIZE];
-        uint8_t log_buffer_sec[LIGHT_LOG_BUFFER_SEC_SIZE];
-        uint8_t *restrict cursor;
-        memset(&log_buffer_pri, 0, LIGHT_LOG_BUFFER_PRI_SIZE);
-        memset(&log_buffer_sec, 0, LIGHT_LOG_BUFFER_SEC_SIZE);
-        uint8_t *message;
-        uint16_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_PRI_SIZE : LIGHT_LOG_BUFFER_SEC_SIZE;
-        snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
-        cursor = strncat(log_buffer_sec, log_buffer_pri, max_copy);
-       
-        vsnprintf(log_buffer_pri, LIGHT_LOG_BUFFER_SEC_SIZE - (cursor - log_buffer_sec), format, args);
-        cursor = strncat(cursor, log_buffer_pri, max_copy);
-        cursor = strcat(cursor, "\n");
-        stream->handler(stream, log_buffer_sec);
+        uint8_t log_buffer[LIGHT_LOG_BUFFER_SEC_SIZE];
+
+        _log_format(log_buffer, sizeof(log_buffer), level, func, format, args);
+        stream->handler(stream, log_buffer);
 }
 static void _log_fast(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
 {
-        uint8_t log_buffer_pri[LIGHT_LOG_BUFFER_PRI_SIZE];
-        uint8_t log_buffer_sec[LIGHT_LOG_BUFFER_SEC_SIZE];
-        memset(&log_buffer_pri, 0, sizeof(log_buffer_pri));
-        memset(&log_buffer_sec, 0, sizeof(log_buffer_sec));
-        uint8_t *restrict cursor;
-        uint16_t max_copy = (LIGHT_LOG_BUFFER_PRI_SIZE < LIGHT_LOG_BUFFER_SEC_SIZE)? LIGHT_LOG_BUFFER_SEC_SIZE : LIGHT_LOG_BUFFER_PRI_SIZE;
-        snprintf(log_buffer_pri, LIGHT_LOG_BUFFER_PRI_SIZE, "[%7s] %s: ", light_log_level_to_string(level), func);
-        cursor = strncat(log_buffer_sec, log_buffer_pri, max_copy);
-       
-        vsnprintf(log_buffer_pri, LIGHT_LOG_BUFFER_SEC_SIZE - (cursor - log_buffer_sec), format, args);
-        cursor = strncat(cursor, log_buffer_pri, max_copy);
-        cursor = strcat(cursor, "\n");
+        uint8_t log_buffer[LIGHT_LOG_BUFFER_SEC_SIZE];
+
+        _log_format(log_buffer, sizeof(log_buffer), level, func, format, args);
         // light_stream_mqueue_add_fast() copies this into the queue slot itself -- no
-        // heap allocation needed here (log_buffer_sec is a local stack buffer)
-        light_stream_mqueue_add_fast(&stream->lock, &stream->queue, log_buffer_sec);
+        // heap allocation needed here (log_buffer is a local stack buffer)
+        light_stream_mqueue_add_fast(&stream->lock, &stream->queue, log_buffer);
 }
 static void _log_faster(struct light_stream *stream, const uint8_t level, const uint8_t *func, const uint8_t *format, va_list args)
 {

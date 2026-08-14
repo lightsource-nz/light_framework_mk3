@@ -38,23 +38,49 @@ static const uint8_t *cli_command_get_full_name(struct light_command *command)
 {
         static uint8_t buffer[LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE];
         struct light_command *stack[LIGHT_CLI_MAX_COMMAND_DEPTH];
-        memset(buffer, 0, LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE);
-        uint8_t *out;
         uint8_t depth = 0;
-        struct light_command *next = command;
-        while(next != &root_command) {
-                stack[depth] = next;
-                depth++;
-                next = next->parent;
+
+        //   walk up to the root recording the path, BOUNDED by the size of stack[]. The loop
+        // had no such bound, so a tree deeper than LIGHT_CLI_MAX_COMMAND_DEPTH wrote past the
+        // end of it -- and the depth is whatever the application's command hierarchy happens
+        // to be, not something this file controls
+        for(struct light_command *next = command;
+                        next && next != &root_command && depth < LIGHT_CLI_MAX_COMMAND_DEPTH;
+                        next = next->parent) {
+                stack[depth++] = next;
         }
-        uint8_t *cursor = buffer;
-        uint8_t *end = buffer + LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE;
-        for(uint8_t i = depth - 1; i < 255; i--) {
-                strncat(cursor, light_cli_command_get_short_name(stack[i]), end - cursor);
-                if(i > 0) strncat(cursor, " ", end - cursor);
+
+        //   then back down again, joining with spaces, every append bounded by the space
+        // actually REMAINING.
+        //
+        //   this used to call strncat() with `end - cursor` as its bound. strncat's third
+        // argument is how many characters it may add ON TOP of what the destination already
+        // holds, and it writes a terminator after those -- so the bound has to be the space
+        // left, less one. `cursor` was never advanced, so `end - cursor` was the whole buffer
+        // size on every call, and a long enough command path ran off the end of it. That is
+        // what -Wstringop-overflow was pointing at
+        size_t used = 0;
+        buffer[0] = '\0';
+        for(uint8_t i = depth; i > 0; i--) {
+                const uint8_t *part = light_cli_command_get_short_name(stack[i - 1]);
+                size_t len = strlen((const char *) part);
+                size_t sep = (i > 1) ? 1 : 0;
+
+                // +1 for the terminator, which is never part of the space a bound may use
+                if(used + len + sep + 1 > sizeof(buffer)) {
+                        light_warn("command name for '%s' truncated at %u characters",
+                                        light_cli_command_get_short_name(command), (unsigned) used);
+                        break;
+                }
+                memcpy(buffer + used, part, len);
+                used += len;
+                if(sep)
+                        buffer[used++] = ' ';
+                buffer[used] = '\0';
         }
-        out = light_alloc(strlen(buffer) + 1);
-        strcpy(out, buffer);
+
+        uint8_t *out = light_alloc(used + 1);
+        memcpy(out, buffer, used + 1);
         return out;
 }
 // minimal portable replacement for POSIX basename() (<libgen.h> isn't available on bare-metal
