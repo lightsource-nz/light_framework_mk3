@@ -17,9 +17,26 @@
 static bool _registry_loaded = false;
 static struct light_object_registry _registry_default;
 
+//   these guard the object TREE only. Reference counts here are lock-free compare-exchange
+// loops, so get() and put() take no lock at all and are not serialised by this.
+//
+//   That is also why, unlike the target ports, code inside one of these sections MAY call
+// light_object_get()/put(): those touch no lock, so there is nothing to nest and nothing to
+// deadlock against. User callbacks are still fired outside the section -- a callback is free
+// to call light_object_add(), which does take this lock, and mtx_plain is not re-entrant
+static void _registry_critical_enter(struct light_object_registry *reg)
+{
+        light_mutex_do_lock(&reg->mutex);
+}
+static void _registry_critical_exit(struct light_object_registry *reg)
+{
+        light_mutex_do_unlock(&reg->mutex);
+}
+
 void light_core_impl_setup()
 {
         if(!_registry_loaded) {
+                light_mutex_init(&_registry_default.mutex);
                 _registry_default.alloc = light_alloc;
                 _registry_default.free = light_free;
                 _registry_loaded = true;
@@ -76,10 +93,15 @@ static uint8_t light_object_set_name_va(struct light_object *obj, const uint8_t 
         vsnprintf(obj->id, LIGHT_OBJ_NAME_LENGTH, format, vargs);
         return LIGHT_OK;
 }
-static int light_object_add_internal(struct light_object_registry *reg, struct light_object *obj)
+//   callbacks only, and called with the tree lock RELEASED: a callback is free to call
+// light_object_add(), which takes that lock, and mtx_plain is not re-entrant. Device libraries
+// hang their initialisation off evt_add, so that is a live path rather than a hypothetical.
+//
+//   `parent` is the reference already taken by the caller, not a fresh lookup: re-reading
+// obj->parent here would race with a concurrent del() that has detached the object since
+static int light_object_add_internal(struct light_object_registry *reg, struct light_object *obj,
+                                        struct light_object *parent)
 {
-        struct light_object *parent = light_object_get(obj->parent);
-
         if(parent && parent->type->evt_child_add)
                 parent->type->evt_child_add(parent, obj);
         if(obj->type->evt_add)
@@ -99,8 +121,18 @@ int light_object_add_va_reg(struct light_object_registry *reg, struct light_obje
             return retval;
         }
 
+        //   the link and the reference on the parent are established in ONE section, so no
+        // other thread can observe the object attached but not yet holding its reference --
+        // the window in which a concurrent del() would detach it and drop a reference that had
+        // not been taken. light_object_get() is safe to call in here: it is compare-exchange,
+        // not a lock. Note a dead parent leaves the link set but yields no reference, which is
+        // the behaviour this has always had
+        _registry_critical_enter(reg);
         obj->parent = parent;
-        return light_object_add_internal(reg, obj);
+        parent = light_object_get(parent);
+        _registry_critical_exit(reg);
+
+        return light_object_add_internal(reg, obj, parent);
 }
 int light_object_add(struct light_object *obj, struct light_object *parent,
                             const uint8_t *format, ...)
@@ -118,14 +150,31 @@ int light_object_add_va(struct light_object *obj, struct light_object *parent,
 }
 int light_object_del(struct light_object *obj)
 {
-        light_object_del_reg(&_registry_default, obj);
+        return light_object_del_reg(&_registry_default, obj);
 }
 int light_object_del_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-        light_object_put_reg(reg, obj->parent);
-        if(obj->parent->type->evt_child_remove)
-                obj->parent->type->evt_child_remove(obj->parent, obj);
+        struct light_object *parent;
+
+        //   read the link and clear it in one section, so two threads detaching the same
+        // object cannot both come away with the same parent and release it twice. Whoever
+        // loses sees NULL and does nothing
+        _registry_critical_enter(reg);
+        parent = obj->parent;
         obj->parent = NULL;
+        _registry_critical_exit(reg);
+
+        if(!parent)
+                return LIGHT_OK;
+
+        //   callback first, put second. The put can drop the last reference, and this used to
+        // run the other way round -- releasing the parent and then handing it to the callback,
+        // which is a use-after-free whenever that was the final reference
+        if(parent->type->evt_child_remove)
+                parent->type->evt_child_remove(parent, obj);
+        light_object_put_reg(reg, parent);
+
+        return LIGHT_OK;
 }
 
 void light_object_init_reg(struct light_object_registry *reg, struct light_object *obj, const struct lobj_type *type)

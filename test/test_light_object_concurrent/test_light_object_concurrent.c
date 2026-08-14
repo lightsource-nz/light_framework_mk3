@@ -115,6 +115,9 @@ static void _run_threads(int (*fn)(void *), void *arg)
 // the object every contended case hammers; one shared word is the whole point
 static struct light_object _shared;
 
+// hands each thread a distinct index, for the cases that give every thread its own object
+static atomic_int _next_slot;
+
 // --- get() under contention -------------------------------------------------------------------
 
 static int _worker_get(void *arg)
@@ -331,10 +334,113 @@ static void test_concurrent_get_rejects_dead_object(void)
                                 "exercise the dead-object path\n");
 }
 
+// --- the object tree --------------------------------------------------------------------------
+
+static struct light_object _tree_parent;
+static struct light_object _tree_child;
+
+//   ONE attach raced by THREAD_COUNT detaches, checked exactly, repeated. Getting to this
+// design took three failed attempts, each of which passed no matter what the implementation
+// did -- worth recording so none of them gets rebuilt:
+//
+//   1. one child per thread. obj->parent was then per-thread, leaving the parent's reference
+//      count as the only shared state -- and that is protected by the lock-free compare-
+//      exchange whatever the tree lock does.
+//   2. every thread doing add-then-del. A del releases at most once per call, so releases
+//      could never cumulatively exceed acquisitions and the count could not be driven down.
+//   3. one adder against N deleters, asserting the count never reaches zero. This did detect
+//      the fault -- but only sometimes, and it got WORSE as iterations rose: an add over an
+//      existing link leaks a reference, so long runs inflate the count away from zero and the
+//      signal goes deaf. A detector that degrades with more sampling is measuring the wrong
+//      thing.
+//
+//   The fix is to stop sampling and start checking: re-establish exactly one link, release
+// every thread at it at once, wait for all of them, and assert the count came back to exactly
+// one. Two threads consuming the same link is then a caught violation rather than a drift that
+// may or may not show up in the total
+#define TREE_SUBROUND_COUNT 4000
+
+static atomic_int _tree_phase;
+static atomic_int _tree_arrived;
+
+static int _worker_tree_del(void *arg)
+{
+        for(int sub = 1; sub <= TREE_SUBROUND_COUNT; sub++) {
+                // wait to be released at this sub-round's freshly attached link
+                while(atomic_load(&_tree_phase) < sub)
+                        ;
+                light_object_del(&_tree_child);
+                atomic_fetch_add(&_tree_arrived, 1);
+        }
+        return 0;
+}
+
+//   del() reads the parent link, clears it, and releases the reference that link stood for.
+// Those three steps have to be one indivisible act: if two threads both read the same non-NULL
+// parent before either clears it, both go on to release it, and the parent loses two
+// references for the one that was taken.
+//
+//   The count drifting UP here is legitimate -- two adds in a row genuinely take two
+// references and leave one link, so a balanced call count does not imply a balanced reference
+// count, and asserting equality would be wrong. What can never happen is the parent falling
+// below the one reference it holds on itself: every release must correspond to a reference
+// somebody took. Reaching zero means an object was freed while still referenced
+static void test_concurrent_tree_no_double_release(void)
+{
+        thrd_t threads[THREAD_COUNT];
+        int violations = 0;
+
+        light_object_init(&_tree_parent, &_type_plain);
+        light_object_init(&_tree_child, &_type_plain);
+        //   light_object_init() sets the reference count and the type and NOTHING else -- it
+        // leaves obj->parent exactly as it was. A stale link here would be detached by threads
+        // that never attached it, which reads exactly like the bug this case hunts for
+        _tree_child.parent = NULL;
+        atomic_store(&_tree_phase, 0);
+        atomic_store(&_tree_arrived, 0);
+
+        for(int i = 0; i < THREAD_COUNT; i++) {
+                if(thrd_create(&threads[i], _worker_tree_del, NULL) == thrd_success)
+                        continue;
+                printf("  FATAL: could not start thread %d\n", i);
+                exit(3);
+        }
+
+        for(int sub = 1; sub <= TREE_SUBROUND_COUNT; sub++) {
+                // exactly one link, and one reference on the parent to go with it: 2 total
+                light_object_add(&_tree_child, &_tree_parent, (const uint8_t *)"child");
+
+                atomic_store(&_tree_arrived, 0);
+                atomic_store(&_tree_phase, sub);
+                while(atomic_load(&_tree_arrived) < THREAD_COUNT)
+                        ;
+
+                //   exactly one of those detaches may consume the link, so the parent is back
+                // to the single reference it holds on itself. Anything less means the link was
+                // consumed more than once and a reference was released that nobody took
+                uint32_t got = _refcount(&_tree_parent);
+                if(got != 1) {
+                        if(violations < 3)
+                                printf("  sub-round %d: parent ref_count %u, expected 1 -- the "
+                                                "link was consumed %d times\n", sub, got, 2 - (int)got);
+                        violations++;
+                }
+
+                // reset, so one violation does not cascade into every sub-round after it
+                atomic_store(&_tree_parent.ref_count, 1);
+                _tree_child.parent = NULL;
+        }
+
+        for(int i = 0; i < THREAD_COUNT; i++)
+                thrd_join(threads[i], NULL);
+
+        CHECK(violations == 0, "%d of %d attaches were detached more than once by %d racing "
+                        "threads", violations, TREE_SUBROUND_COUNT, THREAD_COUNT);
+}
+
 // --- control ----------------------------------------------------------------------------------
 
 static struct light_object _private[THREAD_COUNT];
-static atomic_int _next_slot;
 
 static int _worker_private(void *arg)
 {
@@ -387,11 +493,16 @@ static const struct test_case test_cases[] = {
         { "get_put_balanced",             test_concurrent_get_put_balanced },
         { "put_does_not_wrap",            test_concurrent_put_does_not_wrap },
         { "get_rejects_dead_object",      test_concurrent_get_rejects_dead_object },
+        { "tree_no_double_release",       test_concurrent_tree_no_double_release },
 };
 #define TEST_CASE_COUNT (sizeof(test_cases) / sizeof(test_cases[0]))
 
 int main(int argc, char **argv)
 {
+        //   see test_light_object.c: the registry's tree mutex has to be initialised, and
+        // light_framework_init() is what would normally do it
+        light_core_impl_setup();
+
         if(argc > 1 && strcmp(argv[1], "--list") == 0) {
                 for(size_t i = 0; i < TEST_CASE_COUNT; i++)
                         printf("%s\n", test_cases[i].name);

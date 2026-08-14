@@ -34,7 +34,11 @@ typedef cnd_t light_condition_t;
 #define light_condition_broadcast(cond) cnd_broadcast(cond)
 #define light_condition_signal(cond) cnd_signal(cond)
 
+//   `mutex` guards the object TREE -- parent links -- and nothing else. Reference counts on
+// this port are lock-free compare-exchange loops and deliberately stay that way, which is why
+// the target ports' registries use their lock for both and this one does not
 struct light_object_registry {
+        light_mutex_t mutex;
         void *(*alloc)(size_t);
         void (*free)(void *);
 };

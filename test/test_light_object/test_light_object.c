@@ -260,6 +260,14 @@ static const struct test_case test_cases[] = {
 
 int main(int argc, char **argv)
 {
+        //   the registry holds a mutex guarding the object tree, and light_object_add() reaches
+        // the default registry directly rather than through the accessor that checks whether it
+        // is loaded. light_framework_init() would do this; these tests deliberately do not run
+        // the framework, so they have to do it themselves. Without it the add cases lock an
+        // uninitialised mutex, which happens to work wherever a zeroed pthread_mutex_t is a
+        // valid static initialiser -- not a property worth depending on
+        light_core_impl_setup();
+
         if(argc > 1 && strcmp(argv[1], "--list") == 0) {
                 for(size_t i = 0; i < TEST_CASE_COUNT; i++)
                         printf("%s\n", test_cases[i].name);

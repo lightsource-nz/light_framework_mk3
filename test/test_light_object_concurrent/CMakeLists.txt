@@ -19,6 +19,7 @@ set(LIGHT_OBJECT_CONCURRENT_TEST_CASES
         get_put_balanced
         put_does_not_wrap
         get_rejects_dead_object
+        tree_no_double_release
 )
 foreach(_case ${LIGHT_OBJECT_CONCURRENT_TEST_CASES})
         add_test(NAME light_object_concurrent.${_case}

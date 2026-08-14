@@ -36,6 +36,43 @@ void light_core_port_mutex_unlock(light_mutex_t *mutex)
 static bool _registry_loaded = false;
 static struct light_object_registry _registry_default;
 
+//   every access to a reference count or to a parent link goes through these. A read-modify-
+// write is not atomic on this core, and an interrupt landing in the middle of one is all it
+// takes -- there is no second core here, but there is no shortage of handlers.
+//
+//   NOT RE-ENTRANT, and the whole file is shaped around that: light_mutex_do_lock() saves
+// PRIMASK into the single word the matching unlock restores from, so a nested lock overwrites
+// the outer one's saved state with "already masked" and the outer unlock then declines to
+// re-enable interrupts at all -- they stay off for good. Nothing between a lock and its unlock
+// may call a light_object_* entry point, and no user callback may be fired there
+static void _registry_critical_enter(struct light_object_registry *reg)
+{
+        light_mutex_do_lock(&reg->mutex);
+}
+static void _registry_critical_exit(struct light_object_registry *reg)
+{
+        light_mutex_do_unlock(&reg->mutex);
+}
+
+//   the reference-count halves of get() and put(), to be called with the registry lock ALREADY
+// HELD. They exist so an operation that has to establish a link and its reference together --
+// add() and del() below -- can do both inside one section, which calling light_object_get_reg()
+// from in there could not do without wedging interrupts off per the note above
+static struct light_object *_get_locked(struct light_object *obj)
+{
+        if(!obj || obj->ref_count == 0)
+                return NULL;
+        obj->ref_count++;
+        return obj;
+}
+static void _put_locked(struct light_object *obj)
+{
+        // the NULL test is not redundant: light_object_del_reg() puts a parent that a
+        // concurrent del may already have detached
+        if(obj && obj->ref_count > 0)
+                obj->ref_count--;
+}
+
 void light_core_impl_setup()
 {
         if(!_registry_loaded) {
@@ -112,10 +149,16 @@ static uint8_t light_object_set_name_va(struct light_object *obj, const uint8_t 
         vsnprintf(obj->id, LIGHT_OBJ_NAME_LENGTH, format, vargs);
         return LIGHT_OK;
 }
-static int light_object_add_internal(struct light_object_registry *reg, struct light_object *obj)
+//   callbacks only, and deliberately called with the lock RELEASED. Firing them inside the
+// section would wedge interrupts off the moment a callback touched any light_object_* function,
+// and device libraries hang their initialisation off evt_add, so that is a live path rather
+// than a hypothetical. It would also hold interrupts off across arbitrary user code.
+//
+//   `parent` is the reference already taken by the caller, not a fresh lookup: re-reading
+// obj->parent here would race with a concurrent del() that has detached the object since
+static int light_object_add_internal(struct light_object_registry *reg, struct light_object *obj,
+                                        struct light_object *parent)
 {
-        struct light_object *parent = light_object_get(obj->parent);
-
         if(parent && parent->type->evt_child_add)
                 parent->type->evt_child_add(parent, obj);
         if(obj->type->evt_add)
@@ -135,8 +178,17 @@ int light_object_add_va_reg(struct light_object_registry *reg, struct light_obje
             return retval;
         }
 
+        //   the link and the reference on the parent are established in ONE section, so no
+        // interrupt handler can observe the object attached but not yet holding its reference
+        // -- the window in which a concurrent del() would detach it and drop a reference that
+        // had not been taken. Note a dead parent leaves the link set but yields no reference,
+        // which is the behaviour this has always had
+        _registry_critical_enter(reg);
         obj->parent = parent;
-        return light_object_add_internal(reg, obj);
+        parent = _get_locked(parent);
+        _registry_critical_exit(reg);
+
+        return light_object_add_internal(reg, obj, parent);
 }
 int light_object_add(struct light_object *obj, struct light_object *parent,
                             const uint8_t *format, ...)
@@ -161,13 +213,32 @@ int light_object_del(struct light_object *obj)
 }
 int light_object_del_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-        light_object_put_reg(reg, obj->parent);
-        if(obj->parent->type->evt_child_remove)
-                obj->parent->type->evt_child_remove(obj->parent, obj);
+        struct light_object *parent;
+
+        //   read the link and clear it in one section, so two paths detaching the same object
+        // cannot both come away with the same parent and release it twice. Whoever loses sees
+        // NULL and does nothing
+        _registry_critical_enter(reg);
+        parent = obj->parent;
         obj->parent = NULL;
+        _registry_critical_exit(reg);
+
+        if(!parent)
+                return LIGHT_OK;
+
+        //   callback first, put second. The put can drop the last reference, and this used to
+        // run the other way round -- releasing the parent and then handing it to the callback,
+        // which is a use-after-free whenever that was the final reference
+        if(parent->type->evt_child_remove)
+                parent->type->evt_child_remove(parent, obj);
+        light_object_put_reg(reg, parent);
+
         return LIGHT_OK;
 }
 
+//   no lock, and that is not an oversight: init runs before the object is reachable by anyone
+// else, so there is no second party to exclude. Taking the section here would order these two
+// stores against nothing at all
 void light_object_init_reg(struct light_object_registry *reg, struct light_object *obj, const struct lobj_type *type)
 {
         obj->ref_count = 1;
@@ -176,28 +247,24 @@ void light_object_init_reg(struct light_object_registry *reg, struct light_objec
 // TODO implement saturation conditions and warnings
 struct light_object *light_object_get_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-        struct light_object *ref = obj;
-        if(obj) {
-                light_mutex_do_lock(&reg->mutex);
-                if(obj->ref_count > 0)
-                        obj->ref_count++;
-                else
-                        ref = NULL;
-                light_mutex_do_unlock(&reg->mutex);
-        }
+        struct light_object *ref;
+
+        _registry_critical_enter(reg);
+        ref = _get_locked(obj);
+        _registry_critical_exit(reg);
+
         return ref;
 }
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
-        light_mutex_do_lock(&reg->mutex);
-        //   guarded, mirroring the test get() already makes: on an unsigned count 0 - 1 is not
-        // a small negative number but ~4 billion, which leaves a released object looking
-        // permanently alive and impossible to release again. The mutex makes the
+        //   _put_locked() refuses to decrement past zero: on an unsigned count 0 - 1 is not a
+        // small negative number but ~4 billion, which leaves a released object looking
+        // permanently alive and impossible to release again. The section makes the
         // read-modify-write atomic; it says nothing about whether the value should be
         // decremented at all
-        if(obj->ref_count > 0)
-                obj->ref_count--;
-        light_mutex_do_unlock(&reg->mutex);
+        _registry_critical_enter(reg);
+        _put_locked(obj);
+        _registry_critical_exit(reg);
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,
