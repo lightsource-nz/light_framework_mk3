@@ -29,6 +29,15 @@ set(LIGHT_OBJECT_TEST_CASES
         add_rejects_empty_name
         add_truncates_long_name
         add_fires_events
+        release_fires_at_zero
+        release_not_fired_while_referenced
+        release_fires_once_only
+        release_skipped_for_static_object
+        init_clears_static_flag
+        del_detaches_from_parent
+        del_releases_parent_reference
+        del_is_idempotent
+        del_fires_child_remove_before_release
 )
 foreach(_case ${LIGHT_OBJECT_TEST_CASES})
         add_test(NAME light_object.${_case} COMMAND test_light_object ${_case})

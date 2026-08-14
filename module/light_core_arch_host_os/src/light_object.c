@@ -181,6 +181,13 @@ void light_object_init_reg(struct light_object_registry *reg, struct light_objec
 {
         atomic_store(&obj->ref_count, 1);
         obj->type = type;
+        //   cleared explicitly, not left as found. light_object_alloc() hands back malloc'd
+        // memory, so these bits would otherwise be whatever the previous occupant left there --
+        // and an is_static that came up 1 by chance would silently suppress the release hook
+        // and leak the object. light_object_init_static() sets the bit back afterwards
+        obj->is_static = 0;
+        obj->is_readonly = 0;
+        obj->state_initialized = 1;
 }
 // TODO implement saturation conditions and warnings
 struct light_object *light_object_get_reg(struct light_object_registry *reg, struct light_object *obj)
@@ -212,6 +219,16 @@ void light_object_put_reg(struct light_object_registry *reg, struct light_object
                 if(count == 0)
                         return;
         } while (!atomic_compare_exchange_weak(&obj->ref_count, &count, count - 1));
+
+        //   `count` still holds the value the exchange matched, so count == 1 means THIS caller
+        // is the one that wrote the zero. Exactly one caller can ever observe that, however
+        // many are racing, which is what makes the hook fire exactly once with no extra flag.
+        //
+        //   a static object is never released: its storage outlives the program's interest in
+        // it, and release is the hook that frees. obj must not be touched after the hook
+        // returns -- it has very likely freed it
+        if(count == 1 && !light_object_is_static(obj) && obj->type->release)
+                obj->type->release(obj);
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,

@@ -161,6 +161,111 @@ static void test_get_null_is_safe(void)
         CHECK(ref == NULL, "get(NULL) returned %p, expected NULL", (void *)ref);
 }
 
+// --- the release hook ------------------------------------------------------------------------
+
+static int _release_calls;
+static struct light_object *_released;
+static void _on_release(struct light_object *obj)
+{
+        _release_calls++;
+        _released = obj;
+}
+static struct lobj_type _type_release = { .id = "test:release", .release = _on_release };
+
+//   records whether evt_child_remove ran while the object was still alive. Checking the two
+// call counts after the fact cannot tell the order apart, and the order is the whole point:
+// a callback handed an already-released object is a use-after-free
+static int _remove_ran_before_release;
+static void _on_child_remove_ordered(struct light_object *parent, struct light_object *child)
+{
+        _child_remove_calls++;
+        _remove_ran_before_release = (_release_calls == 0);
+}
+static struct lobj_type _type_events_release = {
+        .id = "test:events_release",
+        .release = _on_release,
+        .evt_child_remove = _on_child_remove_ordered
+};
+
+//   release is the destructor: the device libraries wire it to light_free(). Until recently
+// nothing in any port called it, so every object the framework ever built was leaked. These
+// cases exist so that cannot quietly become true again
+static void test_release_fires_at_zero(void)
+{
+        struct light_object obj;
+        _release_calls = 0;
+        _released = NULL;
+        light_object_init(&obj, &_type_release);
+
+        light_object_put(&obj);
+        CHECK(_release_calls == 1, "release fired %d times, expected 1", _release_calls);
+        CHECK(_released == &obj, "release got %p, expected the object itself (%p)",
+                        (void *)_released, (void *)&obj);
+}
+
+// a still-referenced object must not be released: that is the entire point of the count
+static void test_release_not_fired_while_referenced(void)
+{
+        struct light_object obj;
+        _release_calls = 0;
+        light_object_init(&obj, &_type_release);
+        light_object_get(&obj);
+
+        light_object_put(&obj);
+        CHECK(_release_calls == 0, "release fired %d times while a reference was still held",
+                        _release_calls);
+        light_object_put(&obj);
+        CHECK(_release_calls == 1, "release fired %d times after the last put, expected 1",
+                        _release_calls);
+}
+
+// put() at zero is already a no-op for the count; it must not re-run the destructor either,
+// which would be a double free rather than a miscount
+static void test_release_fires_once_only(void)
+{
+        struct light_object obj;
+        _release_calls = 0;
+        light_object_init(&obj, &_type_release);
+
+        light_object_put(&obj);
+        light_object_put(&obj);
+        light_object_put(&obj);
+        CHECK(_release_calls == 1, "release fired %d times across three puts, expected 1",
+                        _release_calls);
+}
+
+//   a static object's storage was never allocated, so handing it to a release hook that calls
+// light_free() corrupts the heap rather than leaking. Its count reaching zero is allowed --
+// it just means nothing holds a reference -- but the destructor must not run
+static void test_release_skipped_for_static_object(void)
+{
+        struct light_object obj;
+        _release_calls = 0;
+        light_object_init_static(&obj, &_type_release);
+        CHECK(light_object_is_static(&obj), "init_static did not set the static flag");
+
+        light_object_put(&obj);
+        CHECK(_refcount(&obj) == 0, "static object's count is %u after put, expected 0",
+                        _refcount(&obj));
+        CHECK(_release_calls == 0, "release fired %d times for a static object, expected 0",
+                        _release_calls);
+}
+
+//   light_object_alloc() is malloc-backed, so an object built in recycled memory would inherit
+// whatever these bits happened to be. init has to clear them, or an is_static that came up 1
+// by chance would suppress the destructor and leak
+static void test_init_clears_static_flag(void)
+{
+        struct light_object obj;
+        obj.is_static = 1;
+        obj.is_readonly = 1;
+
+        light_object_init(&obj, &_type_plain);
+        CHECK(!light_object_is_static(&obj),
+                        "init left the static flag set on a dynamically initialised object");
+        CHECK(!obj.is_readonly, "init left the readonly flag set");
+}
+
 // --- naming and the object tree -------------------------------------------------------------
 
 static void test_add_sets_name_and_parent(void)
@@ -236,6 +341,80 @@ static void test_add_fires_events(void)
         CHECK(_child_add_calls == 1, "evt_child_add fired %d times, expected 1", _child_add_calls);
 }
 
+// --- detaching -------------------------------------------------------------------------------
+
+//   light_object_del() had no coverage at all until now, and nothing in either repo calls it,
+// so every one of these is pinning down behaviour that has never actually run
+
+static void test_del_detaches_from_parent(void)
+{
+        struct light_object parent, child;
+        light_object_init(&parent, &_type_plain);
+        light_object_init(&child, &_type_plain);
+        light_object_add(&child, &parent, (const uint8_t *)"child");
+
+        light_object_del(&child);
+        CHECK(child.parent == NULL, "after del, parent is %p, expected NULL",
+                        (void *)child.parent);
+}
+
+// the reference add() took on the parent has to come back, or the parent can never be released
+static void test_del_releases_parent_reference(void)
+{
+        struct light_object parent, child;
+        light_object_init(&parent, &_type_plain);
+        light_object_init(&child, &_type_plain);
+        light_object_add(&child, &parent, (const uint8_t *)"child");
+        CHECK(_refcount(&parent) == 2, "setup: parent ref_count is %u, expected 2",
+                        _refcount(&parent));
+
+        light_object_del(&child);
+        CHECK(_refcount(&parent) == 1, "after del, parent ref_count is %u, expected 1",
+                        _refcount(&parent));
+}
+
+//   a second del must do nothing rather than release the parent again. The link is what says
+// whether a reference is owed, so once it is cleared there is nothing left to give back
+static void test_del_is_idempotent(void)
+{
+        struct light_object parent, child;
+        light_object_init(&parent, &_type_plain);
+        light_object_init(&child, &_type_plain);
+        light_object_add(&child, &parent, (const uint8_t *)"child");
+
+        light_object_del(&child);
+        light_object_del(&child);
+        light_object_del(&child);
+        CHECK(_refcount(&parent) == 1, "after three dels, parent ref_count is %u, expected 1 "
+                        "-- the parent was released more than once", _refcount(&parent));
+}
+
+//   the callback has to run BEFORE the reference is dropped. Releasing first and then handing
+// the parent to the callback is a use-after-free whenever that was the final reference, which
+// is exactly what this used to do
+static void test_del_fires_child_remove_before_release(void)
+{
+        struct light_object parent, child;
+        _child_remove_calls = 0;
+        _release_calls = 0;
+        light_object_init(&parent, &_type_events_release);
+        light_object_init(&child, &_type_plain);
+        light_object_add(&child, &parent, (const uint8_t *)"child");
+        // drop the parent's own reference, so the child's is the only one left and the del
+        // below is what releases it
+        light_object_put(&parent);
+        CHECK(_refcount(&parent) == 1, "setup: parent ref_count is %u, expected 1",
+                        _refcount(&parent));
+
+        light_object_del(&child);
+        CHECK(_child_remove_calls == 1, "evt_child_remove fired %d times, expected 1",
+                        _child_remove_calls);
+        CHECK(_release_calls == 1, "release fired %d times, expected 1", _release_calls);
+        CHECK(_remove_ran_before_release,
+                        "the parent was released before evt_child_remove ran -- the callback "
+                        "received an object that had already been destroyed");
+}
+
 // --- harness ---------------------------------------------------------------------------------
 
 struct test_case {
@@ -255,6 +434,15 @@ static const struct test_case test_cases[] = {
         { "add_rejects_empty_name",         test_add_rejects_empty_name },
         { "add_truncates_long_name",        test_add_truncates_long_name },
         { "add_fires_events",               test_add_fires_events },
+        { "release_fires_at_zero",          test_release_fires_at_zero },
+        { "release_not_fired_while_referenced", test_release_not_fired_while_referenced },
+        { "release_fires_once_only",        test_release_fires_once_only },
+        { "release_skipped_for_static_object", test_release_skipped_for_static_object },
+        { "init_clears_static_flag",        test_init_clears_static_flag },
+        { "del_detaches_from_parent",       test_del_detaches_from_parent },
+        { "del_releases_parent_reference",  test_del_releases_parent_reference },
+        { "del_is_idempotent",              test_del_is_idempotent },
+        { "del_fires_child_remove_before_release", test_del_fires_child_remove_before_release },
 };
 #define TEST_CASE_COUNT (sizeof(test_cases) / sizeof(test_cases[0]))
 

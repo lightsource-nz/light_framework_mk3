@@ -51,6 +51,28 @@ extern void light_object_put(struct light_object *obj);
 
 extern void light_object_init(struct light_object *obj, const struct lobj_type *type);
 
+//   an object whose storage the program did not allocate and must never free: a file-scope
+// singleton, a module header, an application. Its lifecycle spans the whole execution, so
+// light_object_put() will not run its release hook however far the count falls -- release is
+// the "free me" hook, and handing static storage to light_free() is a heap corruption rather
+// than a leak.
+//
+//   a thin wrapper rather than a separate per-port primitive: the flag only has to be set
+// before anyone else can see the object, and at init time nobody can
+static inline void light_object_init_static(struct light_object *obj, const struct lobj_type *type)
+{
+        light_object_init(obj, type);
+        obj->is_static = 1;
+}
+
+//   objects declared with the Light_Object_Static* macros carry this from their initialiser;
+// ones set up at runtime get it from light_object_init_static(). light_object_init() clears it,
+// so a malloc'd object never inherits the bit from whatever was in that memory before
+static inline bool light_object_is_static(const struct light_object *obj)
+{
+        return obj->is_static;
+}
+
 static inline const uint8_t *light_object_get_name(struct light_object *obj)
 {
         return obj->id;

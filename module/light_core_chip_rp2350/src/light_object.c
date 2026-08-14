@@ -81,12 +81,16 @@ static struct light_object *_get_locked(struct light_object *obj)
         obj->ref_count++;
         return obj;
 }
-static void _put_locked(struct light_object *obj)
+//   returns true if THIS call took the count to zero, which is how the caller knows it is the
+// one that has to run the release hook. Exactly one caller can ever see that, however many are
+// racing, which is what makes the hook fire exactly once without a second flag to get wrong
+static bool _put_locked(struct light_object *obj)
 {
         // the NULL test is not redundant: light_object_del_reg() puts a parent that a
         // concurrent del may already have detached
-        if(obj && obj->ref_count > 0)
-                obj->ref_count--;
+        if(!obj || obj->ref_count == 0)
+                return false;
+        return --obj->ref_count == 0;
 }
 
 void light_core_impl_setup()
@@ -253,6 +257,13 @@ void light_object_init_reg(struct light_object_registry *reg, struct light_objec
 {
         obj->ref_count = 1;
         obj->type = type;
+        //   cleared explicitly, not left as found. light_object_alloc() hands back malloc'd
+        // memory, so these bits would otherwise be whatever the previous occupant left there --
+        // and an is_static that came up 1 by chance would silently suppress the release hook
+        // and leak the object. light_object_init_static() sets the bit back afterwards
+        obj->is_static = 0;
+        obj->is_readonly = 0;
+        obj->state_initialized = 1;
 }
 // TODO implement saturation conditions and warnings
 struct light_object *light_object_get_reg(struct light_object_registry *reg, struct light_object *obj)
@@ -267,14 +278,26 @@ struct light_object *light_object_get_reg(struct light_object_registry *reg, str
 }
 void light_object_put_reg(struct light_object_registry *reg, struct light_object *obj)
 {
+        bool died;
+
         //   _put_locked() refuses to decrement past zero: on an unsigned count 0 - 1 is not a
         // small negative number but ~4 billion, which leaves a released object looking
         // permanently alive and impossible to release again. The section makes the
         // read-modify-write atomic; it says nothing about whether the value should be
         // decremented at all
         _registry_critical_enter(reg);
-        _put_locked(obj);
+        died = _put_locked(obj);
         _registry_critical_exit(reg);
+
+        //   the release hook runs OUTSIDE the section, for the same reasons the add and del
+        // callbacks do: it is user code, it typically frees the object, and the lock is not
+        // re-entrant, so a destructor that put()s a child would hang the core. obj must not be
+        // touched after this returns -- the hook has very likely freed it
+        //   a static object is never released: its storage outlives the program's interest in
+        // it, and release is the hook that frees. Reaching zero on one is not an error -- it
+        // just means nothing holds a reference any more, which for file-scope storage is fine
+        if(died && !light_object_is_static(obj) && obj->type->release)
+                obj->type->release(obj);
 }
 
 int light_object_add_reg(struct light_object_registry *reg, struct light_object *obj, struct light_object *parent,

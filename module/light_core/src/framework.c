@@ -287,10 +287,29 @@ void light_module_register_periodic_task(const struct light_module *module,
         }
         app_periodic_tasks[app_periodic_task_count++] = (struct light_task) { module, name, task };
 }
+//   the counterpart to register, and until now a stub with its body commented out -- which
+// mattered, because light_framework_shutdown() already calls this for the application's own
+// task and silently did nothing. A module that tears its state down on UNLOAD while its
+// periodic task stays in the list is a use-after-free the next time the task runs.
+//
+//   CALLER CONSTRAINT: not safe to call from inside a running task. The run loop in
+// light_framework_run() walks this array by index and re-reads the count each pass, so
+// compacting under it would shift the next task into the slot just visited and skip it. Every
+// caller today runs from the shutdown path, after the loop has exited
 void light_module_unregister_periodic_task(const struct light_module *module,
                                                 uint8_t (*task)(struct light_application *))
 {
-        //light_arraylist_delete_item(&app_periodic_tasks, &app_periodic_task_count, task);
+        for(uint8_t i = 0; i < app_periodic_task_count; i++) {
+                if(app_periodic_tasks[i].owner != module || app_periodic_tasks[i].run != task)
+                        continue;
+                //   compacted rather than blanked: the run loop has no notion of an empty slot
+                // and would call whatever a hole left behind as a function pointer
+                for(uint8_t j = i + 1; j < app_periodic_task_count; j++)
+                        app_periodic_tasks[j - 1] = app_periodic_tasks[j];
+                app_periodic_task_count--;
+                return;
+        }
+        light_warn("no periodic task to unregister for module '%s'", light_module_get_name(module));
 }
 void light_module_register_one_shot_task(const struct light_module *module,
                                                 const uint8_t *name,
