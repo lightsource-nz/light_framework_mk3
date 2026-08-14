@@ -38,11 +38,16 @@ if(${LIGHT_SYSTEM} STREQUAL CMSIS)
         add_subdirectory(module/light_core_chip_stm32h743)
 endif()
 add_subdirectory(module/light_core_board_pico_hostmode)
-# light_cli currently targets terminal-based programs (argv parsing, POSIX-flavored I/O); only
-# built for HOST for now
-if(LIGHT_PLATFORM STREQUAL HOST)
-        add_subdirectory(module/light_cli)
-endif()
+#   built for every platform. This was HOST-only, on the grounds that it "targets terminal-based
+# programs (argv parsing, POSIX-flavored I/O)" -- which was not true of the code: there is no
+# getopt, no printf/FILE*, no isatty/termios/unistd anywhere in it. Diagnostics go through
+# light_core's stream layer, the parser is hand-rolled, and the one POSIX dependency it did have
+# (basename) was already replaced by a portable _cli_basename() written for bare-metal newlib.
+#
+#   as an INTERFACE library this costs a target build nothing unless something links it, and the
+# argv entry point every platform already has (light_framework_run) is satisfied on a target by
+# a command baked in at build time -- see LIGHT_BOOT_COMMAND
+add_subdirectory(module/light_cli)
 
 if(${LIGHT_SYSTEM} STREQUAL PICO_SDK)
         light_load_pico_sdk_support()

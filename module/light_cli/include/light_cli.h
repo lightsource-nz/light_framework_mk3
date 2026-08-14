@@ -73,7 +73,11 @@ extern struct lobj_type ltype_cli_command;
 // static command max-args value is determined at load time by the size of .arg_name
 #define Light_Command_Static(_name, _parent, _desc, _handler, _arg_min, _arg_max, ...) \
         { \
-                .header = Light_Object_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
+                /*   Static_RO, not plain RO: these live in file-scope storage the program did
+                 * not allocate, and ltype_cli_command carries a release hook that calls
+                 * light_free(). Without the static flag, a put() reaching zero would hand that
+                 * storage to free() -- see light_object_put_reg() */ \
+                .header = Light_Object_Static_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
                 .short_name = _name, \
                 .parent = _parent, \
                 .description = _desc, \
@@ -99,8 +103,16 @@ extern struct lobj_type ltype_cli_command;
 extern void light_cli__autoload_command(void *object);
 extern void light_cli__autoload_option(void *object);
 
+//   NO __static_descriptor on the command itself. On RP2040/RP2350 that attribute expands to
+// __in_flash(".descriptors"), and light_cli_register_command() MUTATES the command at load
+// time -- it writes parent, full_name, parent->child[] and parent->child_count. Those stores
+// cannot land in read-only XIP flash, so the command has to sit in RAM. Every other port
+// defines __static_descriptor as nothing, so this only ever mattered on RP2.
+//
+//   the autoload record below keeps __static_object: that one really is const, and belongs in
+// the .light.static section the framework walks at init
 #define Light_Command_Define(sym_name, parent, name, description, handler, _arg_min, _arg_max, ...) \
-        struct light_command __static_descriptor sym_name = \
+        struct light_command sym_name = \
                 Light_Command_Static(name, parent, description, handler, _arg_min, _arg_max, __VA_ARGS__); \
         static const __static_object struct light_static_object autoload_## sym_name = \
                 Light_Static_Object(&sym_name, light_cli__autoload_command);
@@ -108,8 +120,11 @@ extern void light_cli__autoload_option(void *object);
 #define Light_Command_Option_Declare(sym_name, command) \
         extern struct light_cli_option sym_name
 
+// no __static_descriptor here either, and for the same reason as Light_Command_Define above:
+// light_cli_register_option_ctx() writes into the option's owning command, and an option in
+// flash on RP2 could not participate
 #define Light_Command_Option_Type_Define(sym_name, command, type, name, code, description) \
-        struct light_cli_option __static_descriptor sym_name = \
+        struct light_cli_option sym_name = \
                         Light_Command_Option_Type(name, command, type, code, description); \
         const struct light_static_object __static_object autoload_## sym_name = \
                 Light_Static_Object(&sym_name, light_cli__autoload_option)

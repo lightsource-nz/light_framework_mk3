@@ -238,6 +238,16 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
 // called by the framework once application has loaded, to dispatch command
 uint8_t cli_task(struct light_application *app)
 {
+        //   no target means nothing to run, and is not an error. static_invoke is file-scope, so
+        // target is NULL until a command line is parsed into it -- which happens for an
+        // application that was given no arguments and has no baked boot command, and for one
+        // whose command line failed to parse. That parse failure used to be light_fatal(), so
+        // this could not be reached; it is light_error() now, because exit(-1) on a target with
+        // no console is an unexplained hang
+        if(!static_invoke.target) {
+                light_debug("no command to dispatch");
+                return LF_STATUS_RUN;
+        }
         const uint8_t *full_name = light_cli_command_get_full_name(static_invoke.target);
         light_debug("calling command handler for for command '%s'", full_name);
         struct light_command *last_command = static_invoke.target;
