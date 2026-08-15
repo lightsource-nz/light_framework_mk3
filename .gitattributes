@@ -1,0 +1,17 @@
+#   Shell scripts MUST check out with LF endings, on every platform.
+#
+#   This repo is worked on with core.autocrlf=true, which rewrites text files to CRLF in the
+# working tree. For C sources that is harmless. For a shell script it is not: bash reads the
+# trailing \r as part of each command and fails with `$'\r': command not found`, or worse,
+# silently passes an argument with a carriage return glued to the end of it. The script is not
+# broken and does not look broken -- it is a checkout artifact, and it only appears on a fresh
+# clone, which is the least convenient moment to meet it.
+#
+#   scripts/light-coverage.sh is run by bash on both platforms (directly on Linux, inside WSL on
+# Windows), so it is exposed either way.
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+#   PowerShell handles both endings, so .ps1 files are deliberately left to the repo default
+# rather than pinned -- there is no failure to prevent, and pinning them would churn every file
+# on the next checkout for no benefit.
