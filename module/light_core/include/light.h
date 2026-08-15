@@ -11,8 +11,12 @@
 #include <light_common.h>
 #include <light_platform.h>
 
-// TODO implement version fields properly
-#define LF_VERSION_STR                  "0.1.0"
+//   derived from git tags at build time -- see cmake/light_version.cmake and
+// scripts/light-version.ps1. Generated into the build tree rather than committed, so it cannot
+// drift from the commit it describes; a build with no git available reports "0.0.0-unknown"
+// rather than failing to compile.
+#include <light_version.h>
+#define LF_VERSION_STR                  LIGHT_VERSION_STRING
 
 #define LF_INFO_STR                     "Light Framework v" LF_VERSION_STR ", " LIGHT_BUILD_STRING
 
