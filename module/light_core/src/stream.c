@@ -218,6 +218,35 @@ static bool _all_stream_queues_empty()
         }
         return true;
 }
+//   blocks until everything queued has actually been written, or until it is clear that is
+// not going to happen. Exists for light_fatal(), whose message was reliably LOST: logging is
+// asynchronous, so the line explaining why the system is stopping was still sitting in a queue
+// when exit() ran. That is the one message worth waiting for -- it is the only account of why
+// the device died, and it was the least likely of any to survive.
+//
+//   the two halves are not interchangeable. Where something else owns the drain -- a worker
+// thread, or core 1 under LIGHT_PLATFORM_USB_ON_CORE1 -- this can only WAIT, and must do so on
+// a timeout, since a dead or wedged drainer would otherwise turn a clean exit into a hang.
+// Where this core is the drainer, waiting would be a deadlock and it has to do the work itself
+void light_stream_flush()
+{
+#if LIGHT_PLATFORM_USB_ON_CORE1 || LIGHT_PLATFORM_HAS_C11_THREADS || LIGHT_PLATFORM_HAS_MULTICORE_WORKER
+        for(uint32_t i = 0; i < LIGHT_STREAM_FLUSH_TIMEOUT_MS; i++) {
+                if(_all_stream_queues_empty())
+                        return;
+                light_platform_sleep_ms(1);
+        }
+#else
+        //   bounded by what the queues can hold rather than looping on the predicate alone:
+        // a handler that queued as it drained would otherwise hang here, and hanging while
+        // reporting a fatal error is a worse failure than dropping a line of it
+        for(uint32_t i = 0; i < LIGHT_STREAM_MAX_STREAMS * LIGHT_STREAM_MQUEUE_DEPTH; i++) {
+                if(_all_stream_queues_empty())
+                        return;
+                light_stream_service_message_queues();
+        }
+#endif
+}
 #if LIGHT_PLATFORM_HAS_C11_THREADS
 static int worker__handle_background_message_streams(void *arg)
 {

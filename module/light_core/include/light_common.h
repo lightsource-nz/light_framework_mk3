@@ -150,10 +150,15 @@ extern size_t light_log_format(uint8_t *out, size_t size, const uint8_t level,
 #else
 #define light_error(format, ...) (void)format
 #endif
+//   the flush is the point of the middle line, and it is not optional: log messages are
+// queued and written by whoever owns the drain, so without it the explanation for stopping is
+// still sitting in a queue when exit() runs, and the system dies without saying why. Bounded
+// internally, so a drain that cannot answer costs the message rather than the exit
 #define light_fatal(format, ...) \
 do { \
         light_log_internal(light_stream_stderr, LOG_ERROR, __func__, format __VA_OPT__(,) __VA_ARGS__); \
-        exit(-1); \
+        light_stream_flush(); \
+        light_platform_abort(); \
 } while(0)
 
 // by default, assume a bare-metal target system

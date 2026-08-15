@@ -111,6 +111,17 @@ Light_Stream_Declare(light_stream_stderr);
 // -> this service function is called automatically by a worker on platforms with threading, or can be
 // invoked manually in single-threaded environments
 extern void light_stream_service_message_queues();
+//   blocks until every queued message has been written, or until a timeout says the drain is
+// not coming. Called by light_fatal() so that the reason for stopping actually reaches the
+// console -- logging is asynchronous, and without this the last message is still queued when
+// the process ends. Safe to call whether this core drains the queues or another one does
+extern void light_stream_flush();
+// how long light_stream_flush() waits on a drain owned by someone else before giving up. Long
+// enough for a worker to get through a full queue, short enough that a wedged one does not
+// turn an exit into a hang
+#ifndef LIGHT_STREAM_FLUSH_TIMEOUT_MS
+#define LIGHT_STREAM_FLUSH_TIMEOUT_MS 1000
+#endif
 //   false until light_stream_setup() has built the queues. Only meaningful where something
 // outside light_core drains them -- under LIGHT_PLATFORM_USB_ON_CORE1 the platform's core 1
 // USB worker is already running before setup is reached, and must not touch a queue that does

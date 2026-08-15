@@ -14,6 +14,12 @@
 #ifndef LIGHT_PLATFORM_HAS_MULTICORE_WORKER
 #define LIGHT_PLATFORM_HAS_MULTICORE_WORKER 1
 #endif
+//   there is no process to exit from here, and exit() simply halts the chip -- which also ends
+// the USB stack serving the 1200-baud reset, leaving a board that can only be recovered with
+// the physical BOOT button. Dropping into BOOTSEL instead keeps it reflashable, and by this
+// point light_fatal() has already flushed its explanation to the console
+extern void light_core_port_abort(void);
+#define light_platform_abort() light_core_port_abort()
 // PWM blocks ("slices" in RP2 terms), and DMA paced by a DMA timer for streaming duty values
 // into one -- see light_core_chip_rp2_common
 #define LIGHT_PLATFORM_HAS_PWM 1

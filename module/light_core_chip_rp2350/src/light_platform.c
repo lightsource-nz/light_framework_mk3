@@ -5,6 +5,16 @@
 
 #include <pico/time.h>
 #include <pico/stdio.h>
+#include <pico/bootrom.h>
+
+//   1 by default: see light_core_port_abort() for why a halted board is the worse failure.
+// Set to 0 when a debugger is attached and the halt is the point.
+//   deliberately OUTSIDE the USB-on-core-1 guard below: an unflashable board is no less
+// unflashable for having kept its USB stack on core 0, so both the abort path and the panic
+// path want this whatever that setting is
+#ifndef LIGHT_PANIC_ENTER_BOOTSEL
+#define LIGHT_PANIC_ENTER_BOOTSEL 1
+#endif
 
 #if LIGHT_PLATFORM_USB_ON_CORE1
 #include <pico/multicore.h>
@@ -132,11 +142,39 @@ void __attribute__((noreturn)) light_core_port_panic(const char *fmt, ...)
                         sleep_ms(1);
         }
 
+        //   into BOOTSEL rather than halting. A halted board is an UNFLASHABLE board: the
+        // 1200-baud reset that normally reboots it is served by the firmware's own USB stack,
+        // and once a panic has taken the device down that route is gone -- recovery then needs
+        // physical access to the BOOT button, which is no help on a board in a case, on a
+        // bench across the room, or in the hands of someone who did not build it.
+        //   the message has already been printed and pumped for a full second by this point,
+        // so what is lost by rebooting is only the halted state itself. That state is worth
+        // something to a debugger and nothing at all without one, which is why this is the
+        // default and the halt is what has to be asked for
+#if LIGHT_PANIC_ENTER_BOOTSEL
+        reset_usb_boot(0, 0);
+#endif
         __breakpoint();
         while(true)
                 tight_loop_contents();
 }
 #endif
+
+//   how light_fatal() ends things on this chip. The message has already been queued and
+// flushed by the time this runs, so nothing is lost by rebooting -- and what is gained is a
+// board that can still be flashed. exit() here halts the chip, and a halted chip no longer
+// serves the USB stack that the 1200-baud reset depends on, so the only way back is the
+// physical BOOT button. Learned the hard way: a deliberate test fatal left the board needing
+// a hand on the hardware, twice
+void light_core_port_abort(void)
+{
+#if LIGHT_PANIC_ENTER_BOOTSEL
+        reset_usb_boot(0, 0);
+#endif
+        __breakpoint();
+        while(true)
+                tight_loop_contents();
+}
 
 void light_platform_init()
 {

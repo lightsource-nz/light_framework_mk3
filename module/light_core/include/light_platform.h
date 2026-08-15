@@ -5,6 +5,16 @@
 #include <stdbool.h>
 
 #include <light_platform_port.h>
+
+//   how light_fatal() ends the program once it has said why. exit() is right wherever there is
+// a process to leave, and wrong on bare metal, where it halts a board that then cannot be
+// reflashed: the 1200-baud reset that normally reboots it is served by the firmware's own USB
+// stack, and a halted device no longer serves anything. Recovery then needs the physical BOOT
+// button, which is no help on a board in a case or on someone else's desk.
+//   ports that can do better define light_platform_abort() in their light_platform_port.h
+#ifndef light_platform_abort
+#define light_platform_abort() exit(-1)
+#endif
 // included here rather than left for consumers to find, so that anything already reaching for
 // light_platform.h gets the PWM API without a second include
 #include <light_platform_pwm.h>
