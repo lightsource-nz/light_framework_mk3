@@ -29,4 +29,12 @@
                 Preset = 'conf-demo-cli-debug'
                 Ctest  = $true
         }
+
+        #   Objects names every instrumented binary the suite runs: llvm-cov reads the coverage
+        # map out of the objects themselves, so one left out does not error -- it silently
+        # disappears from the report and understates the result
+        Coverage = @{
+                Objects     = 'test/*/*'
+                IgnoreRegex = '(/lib/|/usr/|sanitizers/|_deps/)'
+        }
 }
