@@ -36,49 +36,58 @@ static void _stream_event_add(struct light_object *obj, struct light_object *chi
 {
 
 }
+//   all six of these return the character count their underlying *printf returned, which is
+// what an int-returning output handler is expected to mean. They previously returned nothing
+// at all: falling off the end of a value-returning function is undefined behaviour the moment
+// a caller looks at the result, and while no caller does today, the handler pointers are
+// public API through Light_Stream_Define() -- the first consumer to write `if(handler(...) < 0)`
+// would be reading whatever happened to be in the return register
 static int msg_stdout(struct light_stream *stream, const char *restrict message)
 {
         //   "%s", message -- NOT printf(message). Passing a message as the format string makes
         // every '%' in it a conversion, so a log line quoting a format or a percentage reads
         // arguments that were never passed. It also truncated long lines on RP2, where this
         // reaches pico-sdk's stdio through a 128-byte working buffer
-        printf("%s", message);
+        return printf("%s", message);
 }
 static int msg_stdout_va(struct light_stream *stream, const char *restrict format, va_list args)
 {
-        vprintf(format, args);
+        return vprintf(format, args);
 }
 static int msg_stdout_v(struct light_stream *stream, const char *restrict format, ...)
 {
         va_list args;
         va_start(args, format);
-        msg_stdout_va(stream, format, args);
+        // held rather than returned directly: va_end() has to run before this returns
+        int written = msg_stdout_va(stream, format, args);
         va_end(args);
+        return written;
 }
 static int msg_stderr(struct light_stream *stream, const char *restrict message)
 {
 // TODO add this macro to light_platform
         // "%s", message -- see msg_stdout() for why this must not pass the message as a format
 #if (LIGHT_PLATFORM_HAS_STDERR)
-        fprintf(stderr, "%s", message);
+        return fprintf(stderr, "%s", message);
 #else
-        printf("%s", message);
+        return printf("%s", message);
 #endif
 }
 static int msg_stderr_va(struct light_stream *stream, const char *restrict format, va_list args)
 {
 #if (LIGHT_PLATFORM_HAS_STDERR)
-        vfprintf(stderr, format, args);
+        return vfprintf(stderr, format, args);
 #else
-        vprintf(format, args);
+        return vprintf(format, args);
 #endif
 }
 static int msg_stderr_v(struct light_stream *stream, const char *restrict format, ...)
 {
         va_list args;
         va_start(args, format);
-        msg_stderr_va(stream, format, args);
+        int written = msg_stderr_va(stream, format, args);
         va_end(args);
+        return written;
 }
 
 extern int __light_streams_start, __light_streams_end;
