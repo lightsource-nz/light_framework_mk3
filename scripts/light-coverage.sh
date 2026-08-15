@@ -14,7 +14,9 @@
 set -u
 
 # shellcheck disable=SC1090
-. "$1"        # defines: src, build, html, objglob, ignore, extra_args (array)
+. "$1"        # defines: src, build, html, objglob, ignore, light, functions, reuse, extra_args
+# tolerated missing so an older params file (or a caller that predates these) still runs
+: "${light:=}" "${functions:=}" "${reuse:=0}"
 
 PROFDATA=llvm-profdata-19
 COV=llvm-cov-19
@@ -25,6 +27,16 @@ command -v $PROFDATA >/dev/null 2>&1 || { PROFDATA=llvm-profdata; COV=llvm-cov; 
 # /usr/bin/c++ (g++), which rejects the flag while linking its own compiler test.
 #   the warning suppressions are not cosmetic -- this code is built with gcc day to day and
 # clang is stricter about several things that are not what we are measuring here
+#   -Reuse reports off whatever is already in the tree. Guarded on the profile actually being
+# there: falling back to a full run is right, silently reporting nothing is not
+if [ "$reuse" = "1" ] && [ -f "$build/cov.profdata" ]; then
+        echo "== reusing existing profile data =="
+        skip_build=1
+else
+        skip_build=0
+fi
+
+if [ "$skip_build" = "0" ]; then
 echo "== configuring coverage build =="
 cmake -S "$src" -B "$build" -G Ninja \
         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
@@ -53,6 +65,7 @@ fi
 echo "   $count profile files"
 
 $PROFDATA merge -sparse "$build"/prof/*.profraw -o "$build/cov.profdata" || exit 1
+fi   # skip_build
 
 #   every test binary has to be named: llvm-cov reads the coverage map out of the objects, so a
 # binary left out simply does not appear, silently understating the result
@@ -60,22 +73,28 @@ $PROFDATA merge -sparse "$build"/prof/*.profraw -o "$build/cov.profdata" || exit
 # test binaries sit at several different depths need (screen-test puts them under
 # light_audio/, rend/ and light_framework/test/ alike). CMakeFiles holds the compiler-probe
 # binaries, which carry no coverage map and would only add noise
-objs=()
+#   collected as plain paths first, then decorated. -show-functions below needs exactly ONE
+# binary given positionally with the rest as -object, and passing them all as -object makes
+# llvm-cov read the SOURCE argument as the main binary -- which fails with
+# 'not a valid object file' and looks like a broken source path rather than a missing binary
+bins=()
 if [ "$objglob" = "auto" ]; then
         while IFS= read -r f; do
                 #   the executable BIT is not enough. Files copied from /mnt/c commonly carry it
                 # regardless of what they are, and handing llvm-cov a context.json fails the
                 # whole run with 'invalid tapi_tbd_version section'. Check the ELF magic instead
                 [ "$(head -c 4 "$f" 2>/dev/null | tr -d '\0')" = "$(printf '\177ELF')" ] || continue
-                objs+=(-object "$f")
+                bins+=("$f")
         done < <(find "$build" -type f -executable \
                         ! -path '*/CMakeFiles/*' ! -path '*_deps*' \
                         ! -name '*.so' ! -name '*.so.*' ! -name '*.a' ! -name '*.cmake' 2>/dev/null)
 else
         for f in $(eval "ls $build/$objglob" 2>/dev/null); do
-                [ -f "$f" ] && [ -x "$f" ] && objs+=(-object "$f")
+                [ -f "$f" ] && [ -x "$f" ] && bins+=("$f")
         done
 fi
+objs=()
+for f in "${bins[@]}"; do objs+=(-object "$f"); done
 if [ ${#objs[@]} -eq 0 ]; then
         echo "NO OBJECTS matched '$objglob' under $build"
         exit 1
@@ -88,6 +107,25 @@ echo ""
 # a silent one
 $COV report "${objs[@]}" -instr-profile="$build/cov.profdata" -ignore-filename-regex="$ignore" \
         || { echo "REPORT FAILED"; exit 1; }
+
+#   the per-function view. Sources are searched for under the project AND the framework,
+# because a project's build pulls light_core's sources in from outside its own tree and the
+# file you want to break down is as often one of those as one of its own
+if [ -n "$functions" ]; then
+        srcs=()
+        while IFS= read -r f; do srcs+=("$f"); done < <(
+                find "$src" ${light:+"$light"} -type f -name "$functions" \
+                        ! -path '*/build*' ! -path '*_deps*' 2>/dev/null | sort -u)
+        echo ""
+        if [ ${#srcs[@]} -eq 0 ]; then
+                echo "no source file matching '$functions' under $src${light:+ or $light}"
+        else
+                echo "== per-function coverage: $functions =="
+                # first binary positional, the rest as -object: see the note above bins=()
+                $COV report "${bins[0]}" "${objs[@]:2}" -instr-profile="$build/cov.profdata" \
+                        -show-functions "${srcs[@]}" || echo "PER-FUNCTION REPORT FAILED"
+        fi
+fi
 
 rm -rf "$html"
 $COV show "${objs[@]}" -instr-profile="$build/cov.profdata" -ignore-filename-regex="$ignore" \

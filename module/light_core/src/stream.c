@@ -465,8 +465,22 @@ void light_stream_message_f_sync(struct light_stream *stream, const uint8_t *for
 }
 void light_stream_message_vf_sync(struct light_stream *stream, const uint8_t *format, va_list args)
 {
+        //   formats here and calls handler(), rather than passing `args` to handler_va().
+        // handler_va() is VARIADIC (see msg_stdout_v()), so handing it a va_list makes the
+        // va_list's own representation the first argument the handler then reads: every
+        // conversion in the format came out as garbage, and "value is %d" with 42 printed a
+        // fragment of a pointer. A message with no conversions was unaffected, which is the
+        // kind of partial breakage that survives a casual look.
+        //
+        //   the 256-byte local is why this is not simply how the whole file works -- see
+        // light_stream_service_message_queues(), which goes out of its way to avoid one on the
+        // drain path. This is the synchronous path, taken by callers who have already decided
+        // to pay for the write in line, and it needs the buffer to format eagerly at all
+        uint8_t text[LIGHT_STREAM_MAX_MSG_LENGTH];
+        vsnprintf((char *)text, LIGHT_STREAM_MAX_MSG_LENGTH, (const char *)format, args);
+
         light_mutex_do_lock(&stream->lock);
-        stream->handler_va(stream, format, args);
+        stream->handler(stream, (const char *)text);
         light_mutex_do_unlock(&stream->lock);
 }
 //   'fast' CLI messages are put into a queue that is processed on the main stack,

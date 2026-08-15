@@ -15,10 +15,22 @@
 # compiler-specific it is not.
 #
 # USAGE:  light-coverage.ps1 [-ProjectRoot <path>] [-NoHtml] [-Distro Debian]
+#                            [-Functions <glob>] [-Reuse]
+#
+#   -Functions takes a source filename glob (stream.c, rend_*.c) and adds a PER-FUNCTION
+# breakdown for the files that match, on top of the usual per-file table. That is the view you
+# actually want when deciding what to test next: a file at 60% tells you there is work to do,
+# the function list tells you where, and which of the gaps are worth closing.
+#
+#   -Reuse skips configure/build/test and reports off the profile data already in the tree.
+# The full run is minutes, and when you are reading the same numbers several ways in a row --
+# whole project, then one file's functions -- repeating it buys nothing.
 param(
         [string]$ProjectRoot,
         [string]$Distro = 'Debian',
-        [switch]$NoHtml
+        [switch]$NoHtml,
+        [string]$Functions,
+        [switch]$Reuse
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,6 +78,9 @@ $lines = @(
         "html='$htmlWsl'",
         "objglob='$($cov.Objects)'",
         "ignore='$ignore'",
+        "light='$lightWsl'",
+        "functions='$Functions'",
+        "reuse='$($Reuse ? 1 : 0)'",
         "extra_args=($(($extra | ForEach-Object { "'$_'" }) -join ' '))"
 )
 [System.IO.File]::WriteAllText($paramsWin, ($lines -join "`n") + "`n")

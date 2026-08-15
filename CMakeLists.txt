@@ -86,6 +86,7 @@ if(LIGHT_PLATFORM STREQUAL HOST)
                 add_subdirectory(test/test_light_log)
                 add_subdirectory(test/test_light_list)
                 add_subdirectory(test/test_light_stream)
+                add_subdirectory(test/test_light_stream_message)
         endif()
 endif()
 
