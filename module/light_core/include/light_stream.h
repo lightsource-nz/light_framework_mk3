@@ -61,7 +61,14 @@ struct light_message {
 // giving each stream two separate locks wastes half of that budget for no benefit
 struct light_stream_mqueue {
         light_condition_t write_ready;
-        uint8_t count;
+        //   _Atomic because it is read with atomic_load() from threads that do not hold the
+        // lock. C11 requires the operand of an atomic operation to BE an atomic object -- gcc
+        // accepts the plain type and clang rejects it outright, which is the compiler being
+        // right: an atomic operation on a non-atomic object is not merely unchecked, it is
+        // ill-formed, and nothing guarantees the load is not torn or cached.
+        //   plain reads and writes elsewhere stay correct, since accessing an _Atomic object
+        // directly is itself a sequentially-consistent atomic operation
+        _Atomic uint8_t count;
         uint8_t head;
         struct light_message message[LIGHT_STREAM_MQUEUE_DEPTH];
 };
@@ -69,7 +76,12 @@ struct light_stream_mqueue {
 struct light_stream {
         struct light_object obj_header;
         light_mutex_t lock;
-        uint8_t mode;
+        //   _Atomic for the same reason as light_stream_mqueue::count: light_stream_get_mode()
+        // and light_stream_set_background_logging_mode() reach it with atomic_load/atomic_store
+        // on the C11-threads ports. The comment on light_stream_get_mode() records that the
+        // header and the implementation once disagreed about how to touch this field; declaring
+        // it atomic is what makes the disagreement impossible rather than merely resolved
+        _Atomic uint8_t mode;
         struct light_stream_mqueue queue;
         int (*handler)(struct light_stream *, const char *restrict);
         int (*handler_va)(struct light_stream *, const char *restrict, ...);
