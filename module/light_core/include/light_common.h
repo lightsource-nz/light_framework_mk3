@@ -245,6 +245,11 @@ extern void light_log_internal(struct light_stream *stream, const uint8_t level,
 
 // mapped to default malloc/free routines for SYSTEM
 extern void *light_alloc(size_t size);
+//   the zeroing counterpart. Exists so that callers needing zeroed memory do not reach past
+// this API to calloc() directly and then free the result with light_free() -- a mismatch that
+// is invisible while light_alloc is a thin wrapper over malloc, and becomes a heap corruption
+// the moment it is not
+extern void *light_calloc(size_t count, size_t size);
 extern void light_free(void *obj);
 
 int16_t _light_arraylist_indexof(void* (*list)[], uint8_t count, void *item);

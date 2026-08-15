@@ -27,6 +27,15 @@ void *light_alloc(size_t size)
 {
         return malloc(size);
 }
+//   exists so that callers wanting zeroed memory do not reach past this API to calloc() and
+// then release the result with light_free(). That pairing is invisible today, because
+// light_alloc is a plain malloc and the two families are the same one -- but it stops being
+// invisible the moment light_alloc is anything else, including a debug allocator used to hunt
+// a heap bug, which is exactly when the confusion is least affordable
+void *light_calloc(size_t count, size_t size)
+{
+        return calloc(count, size);
+}
 void light_free(void *obj)
 {
         free(obj);
