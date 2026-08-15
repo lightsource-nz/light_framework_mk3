@@ -1,7 +1,11 @@
 #!/bin/bash
-#   WSL-side worker for light-coverage.ps1. Kept as its own file, invoked as
-# `wsl -d <distro> -- bash <this> ...`, because passing a multi-line script through
-# `wsl.exe -- bash -c '...'` mangles variable expansion, and calling it from Git Bash
+#   Linux-side worker for light-coverage.ps1. The SAME script on both platforms: on Linux it is
+# run directly, on Windows it is run inside WSL. Nothing in here knows the difference, and that
+# is deliberate -- the platform decision is made once, in light-coverage.ps1, and everything
+# below operates on Linux paths that the caller has already translated (a no-op on Linux).
+#
+#   Kept as its own file, invoked as `bash <this> <params>`, because passing a multi-line script
+# through `wsl.exe -- bash -c '...'` mangles variable expansion, and calling it from Git Bash
 # path-translates /mnt/c into C:/Program Files/Git/mnt/c. A file and positional arguments
 # sidestep both.
 #
@@ -77,20 +81,31 @@ fi   # skip_build
 # binary given positionally with the rest as -object, and passing them all as -object makes
 # llvm-cov read the SOURCE argument as the main binary -- which fails with
 # 'not a valid object file' and looks like a broken source path rather than a missing binary
+#   the executable BIT is not a reliable filter, and this is the single most important line in
+# the file. A build tree on a Windows drive -- /mnt/c under WSL, or the project directory itself
+# on a Linux host mounting one -- reports EVERY file as executable, so cmake_install.cmake and
+# context.json sail through `-x`. Handing either to llvm-cov fails the whole run with
+# 'not recognized as a valid object file' or 'invalid tapi_tbd_version section', neither of
+# which points at the actual problem.
+#   this check used to guard only the `auto` branch, and the glob branch got away with it purely
+# because the tree happened to live on ext4. Both go through it now
+is_elf() {
+        [ -f "$1" ] || return 1
+        [ "$(head -c 4 "$1" 2>/dev/null | tr -d '\0')" = "$(printf '\177ELF')" ]
+}
+
 bins=()
 if [ "$objglob" = "auto" ]; then
         while IFS= read -r f; do
-                #   the executable BIT is not enough. Files copied from /mnt/c commonly carry it
-                # regardless of what they are, and handing llvm-cov a context.json fails the
-                # whole run with 'invalid tapi_tbd_version section'. Check the ELF magic instead
-                [ "$(head -c 4 "$f" 2>/dev/null | tr -d '\0')" = "$(printf '\177ELF')" ] || continue
+                is_elf "$f" || continue
                 bins+=("$f")
         done < <(find "$build" -type f -executable \
                         ! -path '*/CMakeFiles/*' ! -path '*_deps*' \
                         ! -name '*.so' ! -name '*.so.*' ! -name '*.a' ! -name '*.cmake' 2>/dev/null)
 else
         for f in $(eval "ls $build/$objglob" 2>/dev/null); do
-                [ -f "$f" ] && [ -x "$f" ] && bins+=("$f")
+                is_elf "$f" || continue
+                bins+=("$f")
         done
 fi
 objs=()

@@ -30,6 +30,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
 if (-not $Preset) { $Preset = Resolve-LightTargetPreset -Config $config -Target $Target }
@@ -44,10 +45,19 @@ if (-not (Test-Path $uf2)) {
         throw "no UF2 at '$uf2' -- is '$Target' an RP2 target? (STM32 targets flash over SWD and are not supported here)"
 }
 
-function Get-BootselVolume {
-        # a volume with no drive letter cannot be written to; treat it as absent rather than
-        # composing a path like 'C:\...\:\' out of it
-        return Get-Volume | Where-Object { $_.FileSystemLabel -like 'RP*' -and $_.DriveLetter }
+#   a mounted BOOTSEL volume, or nothing. Get-LightBootselVolume can also report the volume as
+# present but UNMOUNTED, which only happens on Linux and is worth its own message: the board is
+# in the right state and the desktop simply has not mounted it, so telling the user to hold BOOT
+# would send them to fix something that is not broken
+function Get-BootselTarget {
+        $v = Get-LightBootselVolume
+        if ($v -and $v.Path) { return $v }
+        return $null
+}
+function Get-BootselUnmounted {
+        $v = Get-LightBootselVolume
+        if ($v -and -not $v.Path) { return $v }
+        return $null
 }
 
 function Wait-For {
@@ -62,35 +72,44 @@ function Wait-For {
         return $null
 }
 
-$volume = Get-BootselVolume
+$volume = Get-BootselTarget
 if ($volume) {
-        Write-Host "board already in BOOTSEL at $($volume.DriveLetter):"
+        Write-Host "board already in BOOTSEL at $($volume.Path)"
 } else {
         # PID_0009 is pico-sdk's CDC stdio interface. PID_000C is a CMSIS-DAP probe, which shares
         # the VID and will happily accept a reset that then does nothing useful.
-        $port = Get-CimInstance Win32_SerialPort | Where-Object { $_.PNPDeviceID -like '*VID_2E8A&PID_0009*' }
+        $port = Find-LightSerialPort -VendorId '2E8A' -ProductId '0009' | Select-Object -First 1
         if (-not $port) {
+                $stuck = Get-BootselUnmounted
+                if ($stuck) {
+                        throw "the BOOTSEL volume is present ($($stuck.Device)) but not mounted, so there is nowhere to copy to. Mount it and re-run with -NoBuild -- e.g. 'udisksctl mount -b $($stuck.Device)'."
+                }
                 throw "no board found: no CDC port with VID_2E8A&PID_0009, and no BOOTSEL volume. Is it connected? If it has panicked or halted, its USB stack is gone -- hold BOOT and re-plug."
         }
 
-        Write-Host "resetting $($port.DeviceID) into BOOTSEL"
-        $sp = New-Object System.IO.Ports.SerialPort $port.DeviceID, 1200, None, 8, one
+        Write-Host "resetting $($port.Device) into BOOTSEL"
+        $sp = New-Object System.IO.Ports.SerialPort $port.Device, 1200, None, 8, one
         try { $sp.Open(); $sp.Close() } catch {
-                # expected: "A device which does not exist was specified". The reset still happened.
+                # expected on Windows: "A device which does not exist was specified". The reset
+                # still happened. Linux usually returns cleanly, so this is tolerated, not required
         }
 
-        $volume = Wait-For -Seconds $TimeoutSeconds -Condition { Get-BootselVolume }
+        $volume = Wait-For -Seconds $TimeoutSeconds -Condition { Get-BootselTarget }
         if (-not $volume) {
+                $stuck = Get-BootselUnmounted
+                if ($stuck) {
+                        throw "the board entered BOOTSEL ($($stuck.Device)) but nothing mounted it, so there is nowhere to copy to. Mount it and re-run with -NoBuild -- e.g. 'udisksctl mount -b $($stuck.Device)'."
+                }
                 throw "board did not enter BOOTSEL within ${TimeoutSeconds}s. If it is halted (a panic, or a build that faulted early) the 1200-baud reset is served by firmware that is no longer running -- hold the BOOT button and re-plug it, then re-run with -NoBuild."
         }
 }
 
-$dest = "$($volume.DriveLetter):\"
+$dest = $volume.Path
 Write-Host "copying $(Split-Path $uf2 -Leaf) -> $dest"
 Copy-Item $uf2 -Destination $dest -Force -ErrorAction Stop
 
 # the volume disappearing IS the reboot; if it never does, the image was not accepted
-$gone = Wait-For -Seconds $TimeoutSeconds -Condition { if (-not (Get-BootselVolume)) { $true } }
+$gone = Wait-For -Seconds $TimeoutSeconds -Condition { if (-not (Get-BootselTarget)) { $true } }
 if (-not $gone) {
         Write-Warning "BOOTSEL volume still present after ${TimeoutSeconds}s -- the board may not have rebooted"
 } else {

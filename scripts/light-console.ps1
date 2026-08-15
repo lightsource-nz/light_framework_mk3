@@ -27,20 +27,22 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
 
-$port = Get-CimInstance Win32_SerialPort | Where-Object { $_.PNPDeviceID -like '*VID_2E8A&PID_0009*' }
+$port = Find-LightSerialPort -VendorId '2E8A' -ProductId '0009' | Select-Object -First 1
 if (-not $port) {
-        throw "no board found: no CDC port with VID_2E8A&PID_0009. If it is in BOOTSEL it has no console; if it has halted, its USB stack is gone."
+        $hint = if ($IsWindows) { '' } else { " On Linux the port also has to be readable -- if it exists but is not listed, check group membership (dialout/uucp)." }
+        throw "no board found: no CDC port with VID_2E8A&PID_0009. If it is in BOOTSEL it has no console; if it has halted, its USB stack is gone.$hint"
 }
 
-$sp = New-Object System.IO.Ports.SerialPort $port.DeviceID, 115200, None, 8, one
+$sp = New-Object System.IO.Ports.SerialPort $port.Device, 115200, None, 8, one
 $sp.DtrEnable = $true          # see the header -- without this the board never boots
 $sp.ReadTimeout = 50
 $sp.ReadBufferSize = 131072
 $sp.Open()
 $sp.DtrEnable = $true          # again after Open(), as some drivers reset it on open
 
-if (-not $Quiet) { Write-Host "capturing $($port.DeviceID) for ${Seconds}s (DTR asserted)" }
+if (-not $Quiet) { Write-Host "capturing $($port.Device) for ${Seconds}s (DTR asserted)" }
 
 $sb = New-Object System.Text.StringBuilder
 $deadline = (Get-Date).AddSeconds($Seconds)
