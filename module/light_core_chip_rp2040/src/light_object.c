@@ -311,11 +311,8 @@ int light_object_add_reg(struct light_object_registry *reg, struct light_object 
         return retval;
 }
 
-int light_ref_get(light_ref_t *ref)
-{
-
-}
-void light_ref_put(light_ref_t *ref)
-{
-
-}
+//   light_ref_get()/light_ref_put() used to sit here as empty bodies, in this and three other
+// ports. They were declared in no header, called from nowhere, and light_ref_get() returned an
+// int without returning anything -- undefined behaviour waiting for a first caller. Reference
+// counting is done directly on obj->ref_count in light_object_get()/light_object_put() above,
+// with a compare-exchange loop; these were a design that was never taken up

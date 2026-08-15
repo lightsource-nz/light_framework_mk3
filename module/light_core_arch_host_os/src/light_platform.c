@@ -153,15 +153,22 @@ void light_platform_timer_stop(struct lp_timer *timer)
 uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
 {
         switch(timer->state) {
-                case TIMER_IDLE:
+        case TIMER_IDLE:
                 return timer->duration_ms;
-                case TIMER_RUN:;
-                uint32_t now = light_platform_get_absolute_time_ms();
-                if(timer->target_ms < now) {
-                        return timer->target_ms - now;
-                }
-                return 0;
+        case TIMER_RUN:;
+                //   a SIGNED difference, not `target < now`. The comparison here was inverted:
+                // it returned target - now on the branch where the target had already passed,
+                // which on unsigned counters underflows to nearly UINT32_MAX -- a timer that
+                // had just expired reported roughly 49 days remaining. Taking the difference
+                // first and testing its sign is also what keeps this correct across the
+                // millisecond counter's own wrap, which comparing the two absolute values is
+                // not. Matches light_core_chip_stm32_common, which already did it this way
+                int32_t remaining = (int32_t)(timer->target_ms - light_platform_get_absolute_time_ms());
+                return (remaining > 0) ? (uint32_t)remaining : 0;
         }
+        //   every other state has nothing pending. Falling off the end was undefined behaviour:
+        // the switch covers two states and the enum has more
+        return 0;
 }
 uint32_t light_platform_get_absolute_time_ms()
 {

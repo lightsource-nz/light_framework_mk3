@@ -83,15 +83,23 @@ void light_platform_timer_stop(struct lp_timer *timer)
 uint32_t light_platform_timer_get_remaining_ms(struct lp_timer *timer)
 {
         switch(timer->state) {
-                case TIMER_IDLE:
+        case TIMER_IDLE:
                 return timer->duration_ms;
-                case TIMER_RUN:;
-                uint32_t now = light_platform_get_time_since_init();
-                if(timer->target_ms < now) {
-                        return timer->target_ms - now;
-                }
-                return 0;
+        case TIMER_RUN:;
+                //   two fixes here. The clock: target_ms is set from to_ms_since_boot() in
+                // light_platform_timer_run() above, which is ABSOLUTE time, while this
+                // compared it against time-since-init -- the two differ by however long the
+                // framework took to start, so every remaining time was overstated by that much.
+                //   and the arithmetic: `target < now` returning target - now underflows on
+                // unsigned counters, so a timer that had just expired reported nearly
+                // UINT32_MAX ms left. A signed difference is also wrap-safe, which comparing
+                // the absolute values is not. Matches light_core_chip_stm32_common
+                int32_t remaining = (int32_t)(timer->target_ms - light_platform_get_absolute_time_ms());
+                return (remaining > 0) ? (uint32_t)remaining : 0;
         }
+        //   every other state has nothing pending. Falling off the end was undefined behaviour:
+        // the switch covers two states and the enum has more
+        return 0;
 }
 uint32_t light_platform_get_absolute_time_ms()
 {
