@@ -99,13 +99,29 @@ static atomic_bool flag_worker_online;
 static atomic_bool worker_should_stop;
 #endif
 
+//   set once the queues exist and may safely be drained. Read by whatever is doing the
+// draining -- on LIGHT_PLATFORM_USB_ON_CORE1 that is the platform's core 1 USB worker, which
+// is already running by the time light_stream_setup() is reached
+volatile bool light_stream_drain_ready = false;
+
+//   these bypass the logging system deliberately: they report on the machinery that logging
+// itself is built from, before any of it exists. That makes them raw stdio writes on core 0 --
+// harmless everywhere else, but under LIGHT_PLATFORM_USB_ON_CORE1 core 0 touching stdio is
+// exactly the cross-core TinyUSB access the whole arrangement exists to prevent, so they are
+// compiled out there rather than left as an intermittent race nobody would connect back here
+#if LIGHT_PLATFORM_USB_ON_CORE1
+#define _stream_boot_printf(...) ((void)0)
+#else
+#define _stream_boot_printf(...) printf(__VA_ARGS__)
+#endif
+
 static void _find_static_streams()
 {
-        printf("&__light_streams_start=0x%x, &__light_streams_end=0x%x, sizeof(void *)=0x%x\n", &__light_streams_start, &__light_streams_end, sizeof(void *));
-        printf("((_start - _end = 0x%x) / 0x%x)=0x%x\n",((uintptr_t)&__light_streams_end) - (uintptr_t)&__light_streams_start, sizeof(void *), (((uintptr_t)&__light_streams_end) - ((uintptr_t)&__light_streams_start)) / sizeof(void *));
+        _stream_boot_printf("&__light_streams_start=0x%x, &__light_streams_end=0x%x, sizeof(void *)=0x%x\n", &__light_streams_start, &__light_streams_end, sizeof(void *));
+        _stream_boot_printf("((_start - _end = 0x%x) / 0x%x)=0x%x\n",((uintptr_t)&__light_streams_end) - (uintptr_t)&__light_streams_start, sizeof(void *), (((uintptr_t)&__light_streams_end) - ((uintptr_t)&__light_streams_start)) / sizeof(void *));
         static_streams = (struct light_stream **) &__light_streams_start;
         static_stream_count = (((uintptr_t)&__light_streams_end) - ((uintptr_t)&__light_streams_start)) / sizeof(void *);
-        printf("located %d static output streams\n", static_stream_count);
+        _stream_boot_printf("located %d static output streams\n", static_stream_count);
 }
 static void _load_static_streams()
 {
@@ -114,7 +130,7 @@ static void _load_static_streams()
                         break;
                 light_stream_init(static_streams[i]);
         }
-        printf("loaded %d static output streams\n", static_stream_count);
+        _stream_boot_printf("loaded %d static output streams\n", static_stream_count);
 }
 #if LIGHT_PLATFORM_HAS_C11_THREADS
 static int worker__handle_background_message_streams(void *arg);
@@ -131,7 +147,15 @@ void light_stream_setup()
         streams_defined_count = 0;
         _load_static_streams();
 
-#if LIGHT_PLATFORM_HAS_C11_THREADS
+#if LIGHT_PLATFORM_USB_ON_CORE1
+        //   nothing to launch and nothing to register: light_platform_init() already started
+        // the core 1 worker that owns both TinyUSB and this drain, and did so before
+        // stdio_init_all() so that enumeration had something pumping it. Registering a core 0
+        // drain task here as well would put stdio writes back on the main loop -- both the
+        // stall this arrangement removes and the cross-core TinyUSB access it forbids
+        light_stream_drain_ready = true;
+        light_debug("message queues drained by the core 1 USB worker");
+#elif LIGHT_PLATFORM_HAS_C11_THREADS
         atomic_store(&flag_worker_online, false);
         if(0 != thrd_create(&worker_thread, worker__handle_background_message_streams, NULL)) {
                 light_fatal("failed to launch background messaging worker thread");
@@ -261,7 +285,14 @@ void light_stream_init(struct light_stream *stream)
                 return;
         }
         streams_defined[streams_defined_count++] = stream;
+        //   a DIRECT write, bypassing the queue that does not exist until three lines below.
+        // That makes it a core 0 stdio write, and under LIGHT_PLATFORM_USB_ON_CORE1 core 0 is
+        // forbidden from touching stdio at all -- core 1 owns TinyUSB by this point, having
+        // been launched back in light_platform_init(). Two lines of boot trace are not worth
+        // an occasional cross-core collision inside the USB stack
+#if !LIGHT_PLATFORM_USB_ON_CORE1
         stream->handler_va(stream, "opening message stream '%s'\n", light_stream_get_name(stream));
+#endif
         light_object_init(&stream->obj_header, &ltype_light_stream);
         light_mutex_init(&stream->lock);
         light_stream_mqueue_init(&stream->queue);

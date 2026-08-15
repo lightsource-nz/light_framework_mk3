@@ -111,6 +111,11 @@ Light_Stream_Declare(light_stream_stderr);
 // -> this service function is called automatically by a worker on platforms with threading, or can be
 // invoked manually in single-threaded environments
 extern void light_stream_service_message_queues();
+//   false until light_stream_setup() has built the queues. Only meaningful where something
+// outside light_core drains them -- under LIGHT_PLATFORM_USB_ON_CORE1 the platform's core 1
+// USB worker is already running before setup is reached, and must not touch a queue that does
+// not exist yet
+extern volatile bool light_stream_drain_ready;
 extern void light_stream_init(struct light_stream *stream);
 static inline uint8_t light_stream_get_mode(struct light_stream *stream)
 {

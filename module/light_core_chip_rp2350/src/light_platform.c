@@ -6,6 +6,14 @@
 #include <pico/time.h>
 #include <pico/stdio.h>
 
+#if LIGHT_PLATFORM_USB_ON_CORE1
+#include <pico/multicore.h>
+#include <tusb.h>
+// set by the core 1 worker once tusb_init() has run there, so core 0 does not reach
+// stdio_init_all() before there is anything pumping enumeration
+static volatile bool _usb_core1_ready = false;
+#endif
+
 #define LIGHT_PLATFORM_MAX_TIMERS       8
 #define _INSTANCE_INVALID               16
 
@@ -18,8 +26,50 @@ static uint8_t timer_instance_count = 0;
 light_task_t main_task;
 static uint32_t system_time_at_init;
 
+#if LIGHT_PLATFORM_USB_ON_CORE1
+//   everything that touches TinyUSB lives on this core, and nothing else may touch it from
+// anywhere. tud_task() here, tusb_init() here (dcd_int_enable() enables USBCTRL_IRQ on the
+// CALLING core, and IRQ enables are per-core on RP2), and the message queue drained here too
+// so that stdio_usb_out_chars() -- which runs tud_cdc_write()/tud_task() on whichever core
+// called it -- is only ever entered from this one.
+//
+//   that co-location IS the fix. The board previously set HAS_MULTICORE_WORKER=0 because a
+// core 1 stream worker raced TinyUSB running on core 0; putting both on core 1 removes the
+// race rather than avoiding it, and gets the 500 ms-per-write CDC busy-wait off the task loop
+// that renders the UI and reads the touch panel.
+//
+//   the cost is a rule the whole image has to keep: core 0 must never write to stdio again,
+// because TinyUSB guards its event queue with IRQ-disable critical sections, which are
+// per-core on RP2 and therefore not cross-core safe. One stray printf() on core 0 restores
+// the original race in its most intermittent form
+static void _core1_usb_worker(void)
+{
+        tusb_init();
+        _usb_core1_ready = true;
+
+        while(!light_core_port_worker_stop_requested()) {
+                tud_task();
+                //   the queues do not exist until light_stream_setup() runs on core 0, which
+                // happens after this core is already pumping. Until then this loop exists
+                // purely to carry enumeration through stdio_init_all()'s connect wait
+                if(light_stream_drain_ready)
+                        light_stream_service_message_queues();
+        }
+        light_core_port_worker_signal_finished();
+}
+#endif
+
 void light_platform_init()
 {
+#if LIGHT_PLATFORM_USB_ON_CORE1
+        //   before stdio_init_all(), not after. With PICO_STDIO_USB_ENABLE_IRQ_BACKGROUND_TASK
+        // disabled, nothing in the SDK pumps tud_task() -- and stdio_usb_init()'s connect wait
+        // (PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS) only sleeps and re-checks, so enumeration
+        // would never complete and the board would hang at boot with no output to say why
+        light_core_port_worker_launch(_core1_usb_worker);
+        while(!_usb_core1_ready)
+                tight_loop_contents();
+#endif
         // apps that don't separately call tinyusb's board_init() (which does its own
         // stdio setup as a side effect -- crossfire relies on this) would otherwise never
         // get GPIO/UART configured for stdio at all, silently dropping every light_info()/
