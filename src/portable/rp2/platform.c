@@ -18,6 +18,28 @@
 #define I2C_BAUDRATE                    (300 * 1000)
 #define SPI_BAUDRATE                    (10 * 1000 * 1000)
 
+//   every I2C transfer below is bounded, because the untimed pico-sdk variants
+// (i2c_write_blocking / i2c_read_blocking) wait until the end of time. On a bus shared by
+// more than one device that is not a theoretical risk: a slave that holds SDA low -- the
+// classic lockup, where it was mid-byte when the master stopped clocking and is still
+// waiting for the clocks to finish it -- takes the whole main loop down with it, because
+// nothing else runs while a task is inside one of these calls. Measured on the touch board:
+// light_imu_task blocked for 8343 ms in a single call, freezing rendering, touch and audio
+// with it, which is what a stuck tone and an unresponsive screen actually were.
+//
+//   a timeout turns that into a failed transfer, which every caller here already reports as
+// false and every driver above already treats as "no sample this time".
+//
+//   scaled by length rather than fixed, because these calls span six-byte register reads and
+// thousand-byte display bursts. At 300 kHz a byte is ~30 us on the wire, so 100 us/byte is
+// better than three times the honest cost, and the base covers addressing and turnaround
+#define I2C_TIMEOUT_BASE_US             2000
+#define I2C_TIMEOUT_PER_BYTE_US         100
+static uint _i2c_timeout_us(uint32_t len)
+{
+        return I2C_TIMEOUT_BASE_US + len * I2C_TIMEOUT_PER_BYTE_US;
+}
+
 // per-port_id PIO block + state machine assigned by _platform_pio_spi4_port_init() --
 // looked back up by port_id in the send functions below, since struct io_context has
 // nowhere else to carry PIO-specific runtime state
@@ -255,15 +277,15 @@ void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd)
         // nostop=true on the control byte keeps the same START condition open across both
         // writes, so the whole thing reaches the display as one transaction (control byte
         // then the command byte), not two separate START/STOP exchanges
-        i2c_write_blocking(port, io->io.i2c.addr, &control, 1, true);
-        i2c_write_blocking(port, io->io.i2c.addr, &cmd, 1, false);
+        i2c_write_timeout_us(port, io->io.i2c.addr, &control, 1, true, _i2c_timeout_us(1));
+        i2c_write_timeout_us(port, io->io.i2c.addr, &cmd, 1, false, _i2c_timeout_us(1));
 }
 void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data)
 {
         i2c_inst_t *port = _i2c_select(io->port_id);
         uint8_t control = I2C_CONTROL_DATA;
-        i2c_write_blocking(port, io->io.i2c.addr, &control, 1, true);
-        i2c_write_blocking(port, io->io.i2c.addr, &data, 1, false);
+        i2c_write_timeout_us(port, io->io.i2c.addr, &control, 1, true, _i2c_timeout_us(1));
+        i2c_write_timeout_us(port, io->io.i2c.addr, &data, 1, false, _i2c_timeout_us(1));
 }
 // mirrors _platform_spi4_send_data_burst(): one continuous transaction covering every byte in
 // 'data', instead of paying a fresh START/STOP (and control byte) per byte like
@@ -272,8 +294,8 @@ void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, u
 {
         i2c_inst_t *port = _i2c_select(io->port_id);
         uint8_t control = I2C_CONTROL_DATA;
-        i2c_write_blocking(port, io->io.i2c.addr, &control, 1, true);
-        i2c_write_blocking(port, io->io.i2c.addr, data, len, false);
+        i2c_write_timeout_us(port, io->io.i2c.addr, &control, 1, true, _i2c_timeout_us(1));
+        i2c_write_timeout_us(port, io->io.i2c.addr, data, len, false, _i2c_timeout_us(len));
 }
 // write-then-read: write the register address (nostop, keeps the START condition open),
 // then read the response as a separate transfer that issues its own STOP. this is plain
@@ -283,10 +305,12 @@ void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, u
 bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
 {
         i2c_inst_t *port = _i2c_select(io->port_id);
-        int written = i2c_write_blocking(port, io->io.i2c.addr, &reg, 1, true);
+        int written = i2c_write_timeout_us(port, io->io.i2c.addr, &reg, 1, true,
+                                        _i2c_timeout_us(1));
         if(written < 0)
                 return false;
-        int read = i2c_read_blocking(port, io->io.i2c.addr, out, len, false);
+        int read = i2c_read_timeout_us(port, io->io.i2c.addr, out, len, false,
+                                        _i2c_timeout_us(len));
         return read == (int)len;
 }
 // the write twin: register address then payload, both under one held START -- the same
@@ -295,7 +319,8 @@ bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *ou
 bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint8_t *data, uint32_t len)
 {
         i2c_inst_t *port = _i2c_select(io->port_id);
-        int written = i2c_write_blocking(port, io->io.i2c.addr, &reg, 1, true);
+        int written = i2c_write_timeout_us(port, io->io.i2c.addr, &reg, 1, true,
+                                        _i2c_timeout_us(1));
         if(written < 0)
                 return false;
         // a zero-length write is a bare register-address poke, which is how some devices are
@@ -303,7 +328,8 @@ bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint
         // further to send, and issuing a 0-byte transfer would leave the START unterminated
         if(!len)
                 return true;
-        written = i2c_write_blocking(port, io->io.i2c.addr, data, len, false);
+        written = i2c_write_timeout_us(port, io->io.i2c.addr, data, len, false,
+                                        _i2c_timeout_us(len));
         return written == (int)len;
 }
 // RP2040 I2C-over-DMA needs the target address folded into each FIFO command word rather
