@@ -51,9 +51,27 @@ struct light_module {
 struct light_application {
         struct light_object header;
         struct light_module module;
+        //   the application's own version, distinct from the framework's. NULL when the
+        // application never declared one, which is the default and is reported honestly rather
+        // than being passed off as a version
+        const char *version;
         void (*event)(const struct light_module *, uint8_t, void*);
         uint8_t (*app_main)(struct light_application *);
 };
+
+//   an application declares its version by defining this before including light.h, or -- more
+// usefully -- by having its build define it, which is how it can carry a git-derived string
+// without anything being committed. cmake/light_version.cmake generates exactly such a value.
+//
+//   deliberately NOT a parameter of Light_Application_Define(). That macro's variadic tail is
+// the module dependency list, so a version argument could only go in front of it, and there are
+// around twenty call sites across four repositories -- several inside submodules checked out by
+// two parents each, which would need coordinated pointer bumps. A macro with a default costs
+// nothing at the call sites and lets a build supply the value per target, which is where it
+// should come from anyway
+#ifndef LIGHT_APP_VERSION
+#define LIGHT_APP_VERSION               NULL
+#endif
 
 struct light_event_app_launch {
         int argc;
@@ -94,6 +112,7 @@ struct light_static_object {
 { \
         .header = Light_Object_Static_RO(_name, NULL, &ltype_light_application), \
         .module = Light_Module_Static(_name, _lf_app_event, __VA_ARGS__), \
+        .version = LIGHT_APP_VERSION, \
         .event = _event, \
         .app_main = _main \
 }

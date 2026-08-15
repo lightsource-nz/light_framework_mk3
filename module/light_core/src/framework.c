@@ -251,9 +251,15 @@ void light_framework_load_application(struct light_application *app)
 {
         if(!framework_loading)
                 light_fatal("attempted to load an application before calling light_framework_init()");
+        //   the "NULL" that used to sit in this line was a hardcoded string literal, not a
+        // failed lookup: there was no version field to read. There is one now, and an
+        // application that has not declared a version says so rather than printing something
+        // that looks like a value. See LIGHT_APP_VERSION in light.h for how to supply one.
         // TODO verify at build-time that we support the runtime version requested by this app
         light_info("loading application '%s': app version %s, framework version %s",
-                                        light_application_get_name(app),"NULL",LF_VERSION_STR);
+                                        light_application_get_name(app),
+                                        app->version ? app->version : "unset",
+                                        LF_VERSION_STR);
         // this call recursively loads the entire module tree for the application
         light_framework_load_module(light_application_get_main_module(app));
 
