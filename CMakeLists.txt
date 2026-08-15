@@ -84,6 +84,7 @@ if(LIGHT_PLATFORM STREQUAL HOST)
                 add_subdirectory(test/test_light_object)
                 add_subdirectory(test/test_light_object_concurrent)
                 add_subdirectory(test/test_light_log)
+                add_subdirectory(test/test_light_list)
         endif()
 endif()
 
