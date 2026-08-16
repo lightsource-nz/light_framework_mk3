@@ -55,6 +55,19 @@ elseif(${LIGHT_SYSTEM} STREQUAL CMSIS)
         light_load_cmsis_support()
 endif()
 
+#   the transport abstraction over I2C and SPI, with a port per platform. It arrived here from
+# its own repository, where it sat beside the display modules and was assumed to belong to them
+# -- it linked light_display, light_display linked it back, and the two were a cycle that CMake
+# quietly tolerated. Nothing in it ever referenced a light_display type; light_touch and
+# light_imu sit on it just as directly. It is a peer of light_core, not of the display layer.
+#
+#   MUST come after the support block above, not up with the other modules: on a PICO_SDK
+# target build its CMakeLists calls pico_generate_pio_header() for the PIO-driven SPI port, and
+# that command does not exist until light_load_pico_sdk_support() has initialised the SDK. Added
+# any earlier the configure dies with "Unknown CMake command", which names the symptom and not
+# the ordering
+add_subdirectory(module/light_ioport)
+
 light_info("loading platform support database...")
 add_subdirectory(platform/arch)
 add_subdirectory(platform/chip)
