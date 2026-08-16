@@ -48,7 +48,14 @@ $failed = @()
 
 if ($test.Ctest) {
         Write-Host "`n=== ctest: $tree ==="
-        ctest --test-dir $tree --output-on-failure
+        #   --no-tests=error, because a bare ctest EXITS 0 when it finds no tests at all. A
+        # project that declares Ctest = $true is asserting it has some, so finding none is a
+        # failure of this script's premise, not a vacuous pass.
+        #   this was not hypothetical: screen-test's Test preset resolved to a tree shared with
+        # its rp2040 target configuration, so `test.ps1` built firmware, registered no tests, and
+        # printed "all checks passed". Under CI that is the worst available outcome -- a pipeline
+        # that stays green precisely because it stopped testing anything.
+        ctest --test-dir $tree --output-on-failure --no-tests=error
         if ($LASTEXITCODE -ne 0) { $failed += "ctest (exit $LASTEXITCODE)" }
 }
 
