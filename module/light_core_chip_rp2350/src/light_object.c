@@ -20,13 +20,23 @@ void light_core_port_worker_launch(void (*worker_fn)(void))
 {
         _worker_stop_requested = false;
         _worker_finished = false;
-        // deliberately NOT calling multicore_reset_core1() first: it's the textbook-recommended
-        // thing to do, but combined with a debug probe having ever touched core1 (SWD multidrop
-        // examining both cores' DAPs) it corrupts OpenOCD's/the debugger's view of core1 --
-        // "Failed to select multidrop rp2040.dap1" -- without actually being needed for a real,
-        // undebugged boot (see raspberrypi/pico-sdk#2249). carried over from
-        // light_core_chip_rp2040/src/light_object.c -- worth confirming this still applies on
-        // RP2350's debug hardware, not just assumed
+        //   core 1 is reset before launching it, and this reverses an earlier deliberate choice
+        // not to. The reasoning then was that multicore_reset_core1() corrupts a debugger's view
+        // of core 1 once a probe has examined both DAPs (raspberrypi/pico-sdk#2249), and that it
+        // "isn't needed for a real, undebugged boot".
+        //
+        //   the second half of that is true and the first half is the smaller problem. Without
+        // the reset, multicore_launch_core1() hangs FOREVER whenever core 1 is already running
+        // -- it waits on a FIFO handshake from a core that is busy in the previous launch's
+        // worker loop and will never answer, and the SDK call has no timeout. Any warm restart
+        // of core 0 alone reaches that state: a debugger reset, a re-init, an application that
+        // calls light_stream_setup() twice.
+        //
+        //   observed as core 0 stuck in multicore_fifo_wready() from multicore_launch_core1_raw()
+        // with no output past "loaded N static output streams", which reads as a dead board and
+        // says nothing about the cause. A silent permanent hang is a worse failure than a
+        // debugger losing sight of a core, so the textbook order is restored
+        multicore_reset_core1();
         multicore_launch_core1(worker_fn);
 }
 void light_core_port_worker_signal_stop(void)
