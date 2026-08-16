@@ -7,3 +7,6 @@ build/
 build-*/
 stage/
 CMakeUserPresets.json
+# machine-specific tool and dependency paths -- see user.config.example.ps1.
+# This is the ONE place an absolute path may live, and it must never be committed.
+user.config.ps1

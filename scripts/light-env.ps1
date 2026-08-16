@@ -15,6 +15,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/LightUserConfig.psm1') -Force
 
 #   every absolute path below used to be hardcoded to one developer's Windows home directory,
 # which no second machine could satisfy and no Linux machine could even parse. They are now
@@ -26,24 +27,46 @@ $tools = Get-LightToolRoot
 # (screen-test/CMakeLists.txt) and light_preinit.cmake resolves the framework against it.
 # Derived from this script's own location so a moved or cloned checkout still works.
 $frameworkRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not $env:LIGHT_PATH) { $env:LIGHT_PATH = $frameworkRoot }
 
-#   the sibling checkouts. Derived from the framework's own parent rather than named absolutely:
-# all of these live beside light_framework_mk3 in a normal checkout, on any platform
-$siblings = Split-Path $frameworkRoot -Parent
+#   every path exported to the environment goes through this. CMake parses these values as CMake
+# strings, where a backslash starts an escape -- "C:\Users\..." fails outright with
+# "Invalid character escape '\U'". The paths that used to be hardcoded here were written with
+# forward slashes and so never hit it; deriving them with Join-Path produces the native
+# separator, which does. Forward slashes are accepted by CMake, PowerShell and Windows alike
+function script:_ForCMake([string]$p) {
+        if (-not $p) { return $p }
+        return ($p -replace '\\', '/')
+}
+
+if (-not $env:LIGHT_PATH) { $env:LIGHT_PATH = (_ForCMake $frameworkRoot) }
+
+#   dependency checkouts, resolved by Resolve-LightDependency: an environment variable if the
+# shell already set one, then the gitignored user config, then ../<name> beside the project that
+# needs it. The sibling default is what makes a fresh clone build with no configuration.
+#
+#   resolved against the project being worked in when there is one -- so a project checked out
+# somewhere else finds ITS siblings -- falling back to the framework's own location otherwise
+$projectRoot = $frameworkRoot
+try {
+        Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
+        $projectRoot = Get-LightProjectRoot
+} catch {
+        # not inside a project (or no CMakePresets.json above the cwd) -- the framework's own
+        # parent is the right answer then, and is the same directory in a normal checkout
+}
 
 #   PICO_SDK_PATH MUST be set before the FIRST configure of any pico tree. The pico presets pass
 # it through as $env{PICO_SDK_PATH}, and when it is empty pico_sdk_init() never runs. That fails
 # late and misleadingly -- as "Unknown CMake command pico_enable_stdio_semihosting" -- and worse,
 # the failed configure caches the HOST compiler, so a later correct configure still builds
 # boot_stage2 with w64devkit's cc.exe. The only recovery is deleting the build tree.
-if (-not $env:PICO_SDK_PATH) { $env:PICO_SDK_PATH = (Join-Path $siblings 'pico-sdk') }
+$env:PICO_SDK_PATH = _ForCMake (Resolve-LightDependency -Name 'pico-sdk' -ProjectRoot $projectRoot -EnvVar 'PICO_SDK_PATH')
 
 #   without this, rend's own Findcrush.cmake defaults FONT_CRUSHER_PATH relative to ITSELF,
 # misses the sibling checkout, and silently FetchContent-fetches font-crusher from GitHub --
 # so local crush edits have no effect at all. screen-test works around it in CMake; crossfire
 # does not, and every one of its build trees is currently building against a fetched copy.
-if (-not $env:FONT_CRUSHER_PATH) { $env:FONT_CRUSHER_PATH = (Join-Path $siblings 'font-crusher') }
+$env:FONT_CRUSHER_PATH = _ForCMake (Resolve-LightDependency -Name 'font-crusher' -ProjectRoot $projectRoot -EnvVar 'FONT_CRUSHER_PATH')
 
 #   the toolchain directories to prepend, which are genuinely different per platform rather
 # than the same thing spelled two ways.
@@ -56,22 +79,53 @@ if (-not $env:FONT_CRUSHER_PATH) { $env:FONT_CRUSHER_PATH = (Join-Path $siblings
 #
 #   the RISC-V toolchain is deliberately ABSENT on both: it reaches the build through
 # PICO_TOOLCHAIN_PATH in the riscv preset, and putting it on PATH breaks the ARM trees.
+#   each is resolved as: user config entry, then the derived candidates below, then nothing --
+# see lib/LightUserConfig.psm1. Nothing here is an absolute path, and the user config that may
+# contain one is gitignored
+$w64devkit  = Resolve-LightToolDir -Name 'w64devkit'     -Candidates @("$tools/w64devkit/bin")
+$armBin     = Resolve-LightToolDir -Name 'arm-toolchain' -Candidates @(
+        "$tools/arm-gnu-toolchain-14.2.rel1-mingw-w64-x86_64-arm-none-eabi/bin",
+        "$tools/arm-gnu-toolchain/bin")
+$openocdBin = Resolve-LightToolDir -Name 'openocd'       -Candidates @(
+        "$tools/xpack-openocd-0.12.0-7/bin",
+        "$tools/xpack-openocd/bin")
+
 if ($IsWindows) {
-        $required = @(
-                "$tools/w64devkit/bin",
-                "$tools/arm-gnu-toolchain-14.2.rel1-mingw-w64-x86_64-arm-none-eabi/bin",
-                "$tools/xpack-openocd-0.12.0-7/bin",
-                "$env:LOCALAPPDATA/Microsoft/WinGet/Links"
-        )
+        $required = @($w64devkit, $armBin, $openocdBin, "$env:LOCALAPPDATA/Microsoft/WinGet/Links") |
+                Where-Object { $_ }
         $optional = @()
 } else {
+        # a packaged arm-none-eabi-gcc / openocd already on PATH is the norm here, so nothing is
+        # required and nothing is warned about
         $required = @()
-        # honoured when present, silent when not -- a packaged arm-none-eabi-gcc is the norm
-        $optional = @(
-                "$tools/arm-gnu-toolchain/bin",
-                "$tools/xpack-openocd/bin"
-        )
+        $optional = @($armBin, $openocdBin) | Where-Object { $_ }
 }
+
+#   exported so the things that CANNOT call this script can still avoid hardcoding: the riscv
+# CMake preset reads PICO_TOOLCHAIN_PATH, and .vscode/launch.json reads these through
+# ${env:...} substitution. Set rather than defaulted-if-empty, since they describe this machine
+$riscv = Resolve-LightToolDir -Name 'riscv-toolchain' -Candidates @(
+        "$tools/riscv-toolchain-15-x64-win",
+        "$tools/riscv-toolchain")
+if ($riscv -and -not $env:PICO_TOOLCHAIN_PATH) { $env:PICO_TOOLCHAIN_PATH = _ForCMake $riscv }
+if ($armBin) { $env:LIGHT_ARM_TOOLCHAIN_BIN = $armBin }
+if ($openocdBin) { $env:LIGHT_OPENOCD_BIN = $openocdBin }
+if ($w64devkit) { $env:LIGHT_W64DEVKIT_BIN = $w64devkit }
+# the host debugger the cppdbg launch configs use; w64devkit's gdb where there is one, else PATH
+$hostGdb = Find-LightTool -Name "gdb$(Get-LightExeSuffix)" -Candidates @(
+        ($w64devkit ? [System.IO.Path]::Combine($w64devkit, "gdb$(Get-LightExeSuffix)") : $null))
+if ($hostGdb) { $env:LIGHT_HOST_GDB = $hostGdb }
+#   [System.IO.Path]::GetDirectoryName rather than Split-Path: Split-Path resolves through
+# PowerShell's drive providers and THROWS on a path whose drive does not exist ("Cannot find
+# drive. A drive with the name 'D' does not exist"). A user config naming a tool on a drive that
+# is not currently mounted is a perfectly ordinary thing, and it must not take down light-env
+$ocdPrefix = if ($openocdBin) { [System.IO.Path]::GetDirectoryName($openocdBin) } else { $null }
+#   ...and [System.IO.Path]::Combine rather than Join-Path, for the same reason: Join-Path
+# resolves drives too, so it throws on the same input GetDirectoryName was chosen to survive
+$ocdScripts = Resolve-LightToolDir -Name 'openocd-scripts' -Candidates @(
+        ($ocdPrefix ? [System.IO.Path]::Combine($ocdPrefix, 'openocd/scripts') : $null),
+        ($ocdPrefix ? [System.IO.Path]::Combine($ocdPrefix, 'share/openocd/scripts') : $null))
+if ($ocdScripts) { $env:LIGHT_OPENOCD_SCRIPTS = $ocdScripts }
 
 $sep = Get-LightPathSeparator
 $missing = @()
@@ -103,9 +157,12 @@ foreach ($t in @('cmake', 'ninja')) {
 }
 
 if (-not $Quiet) {
+        $ucp = Get-LightUserConfigPath
         Write-Host "platform          = $(Get-LightPlatform)"
+        Write-Host "user config       = $($ucp ? $ucp : '(none -- using derived defaults)')"
         Write-Host "LIGHT_PATH        = $env:LIGHT_PATH"
         Write-Host "LIGHT_TOOLS_PATH  = $tools"
         Write-Host "PICO_SDK_PATH     = $env:PICO_SDK_PATH"
         Write-Host "FONT_CRUSHER_PATH = $env:FONT_CRUSHER_PATH"
+        if ($env:PICO_TOOLCHAIN_PATH) { Write-Host "PICO_TOOLCHAIN_PATH = $env:PICO_TOOLCHAIN_PATH" }
 }

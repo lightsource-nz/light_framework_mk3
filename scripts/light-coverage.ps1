@@ -41,6 +41,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/LightUserConfig.psm1') -Force
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
 if (-not $config.Coverage) {
@@ -69,7 +70,21 @@ $covRoot = Split-Path $htmlWin -Parent
 if (-not (Test-Path $covRoot)) { New-Item -ItemType Directory -Path $covRoot -Force | Out-Null }
 $htmlWsl = "$(ConvertTo-LightWslPath $covRoot)/html"
 
+#   the dependency checkouts, resolved and translated here rather than named in each project's
+# config. They have to be passed explicitly: the coverage build tree is not beside the source, so
+# CMake's own sibling-relative defaults resolve to the wrong place and rend quietly FetchContents
+# font-crusher from GitHub instead of using the checkout next door.
+#   only passed when the resolved directory actually exists, so a project that needs neither is
+# not handed a broken path
 $extra = @("-DLIGHT_PATH=$lightWsl")
+foreach ($dep in @(
+        @{ Name = 'pico-sdk';     Var = 'PICO_SDK_PATH' },
+        @{ Name = 'font-crusher'; Var = 'FONT_CRUSHER_PATH' })) {
+        $p = Resolve-LightDependency -Name $dep.Name -ProjectRoot $config.Root -EnvVar $dep.Var
+        if ($p -and (Test-Path $p)) {
+                $extra += "-D$($dep.Var)=$(ConvertTo-LightWslPath $p)"
+        }
+}
 foreach ($kv in @($cov.CMakeArgs)) { if ($kv) { $extra += $kv } }
 
 $worker = "$lightWsl/scripts/light-coverage.sh"
