@@ -10,10 +10,17 @@
 # misbehaviour rather than an error, and screen-test's launch.json named the rp2040 SVD for every
 # configuration including the RP2350 ones.
 #
-# PARTLY HARDWARE-VERIFIED. Run against a Pico 2 through a CMSIS-DAP probe, -ServerOnly reaches a
-# live OpenOCD listening on 3333: the probe is detected and named, and the config, SVD and ELF all
-# resolve. What is still untested is the gdb half -- the default path that launches
-# arm-none-eabi-gdb, loads the image and hands over a session.
+# HARDWARE-VERIFIED on a Pico 2 through a CMSIS-DAP probe, both paths:
+#   -ServerOnly reaches a live OpenOCD listening on 3333, with the probe named and the config,
+#     SVD and ELF all resolved;
+#   the default path launches gdb, connects to localhost:3333, runs `monitor reset init` and
+#     loads the image -- confirmed by gdb reporting every section written and a transfer rate.
+#
+# The one thing still unproven is the handover to an INTERACTIVE session, because the test drove
+# gdb with stdin closed; gdb then hits EOF, reports "error detected on stdin" and exits with a
+# large negative status. That is the harness, not this script -- OpenOCD is still torn down
+# correctly by the finally block below -- but it is why there is no -Batch mode here yet: a
+# non-interactive caller currently has no clean way to say what it wants gdb to DO.
 #
 # USAGE:  light-debug.ps1 [-Target <name>] [-Preset <name>] [-ServerOnly] [-Attach] [-NoBuild]
 param(
