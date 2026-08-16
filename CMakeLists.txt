@@ -29,9 +29,18 @@ target_sources(
         ${CMAKE_CURRENT_LIST_DIR}/src/portable/${LIGHT_PORT}/platform.c
 )
 
+#   NO light_display here, and its absence is the point. This module named light_display for
+# as long as it has existed, which made the two mutually dependent -- light_display links
+# light_ioport for its transports, and light_ioport linked light_display back. CMake tolerates
+# that between static and INTERFACE libraries by repeating them on the link line, so it never
+# failed and nobody noticed.
+#   it was never real: nothing under src/ or include/ references a light_display type, function
+# or header. The only mentions in the whole module are this line and one comment in the STM32
+# port. Dropping it costs nothing and leaves light_ioport genuinely standalone -- a transport
+# abstraction over I2C/SPI that light_display, light_touch and light_imu all sit on top of,
+# rather than a peer of the display layer. That is what lets it live in the framework.
 target_link_libraries(
         light_ioport INTERFACE
-        light_display
         light_core
 )
 
