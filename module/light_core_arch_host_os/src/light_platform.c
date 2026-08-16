@@ -179,7 +179,18 @@ uint32_t light_platform_get_absolute_time_ms()
         if(clock_gettime(CLOCK_BOOTTIME, &ts) == -1) {
                 return -1;
         }
-        return (ts.tv_sec * 1000) + (ts.tv_nsec / 1000);
+        //   1 ms is 1e6 ns. This divided by 1e3, which yields MICROseconds, and then added them
+        // to a milliseconds figure -- so the sub-second part ran 1000x fast and, worse, the whole
+        // value went BACKWARDS at every wall-clock second boundary: at .960s it read
+        // sec*1000 + 960000, and 40ms later it read (sec+1)*1000 + 0, a drop of ~959000.
+        //   any code measuring an elapsed interval across that boundary saw negative time. It
+        // surfaced as light_audio.poll_ends_tone_on_the_clock failing on CI while passing
+        // locally, because whether a 40ms sleep straddles a second boundary is luck -- roughly a
+        // 4% chance per run, which is exactly the sort of odds that reads as "flaky test".
+        //   the cast is deliberate rather than incidental: tv_sec is uptime here (CLOCK_BOOTTIME),
+        // so this wraps after ~49.7 days, matching the RP2 millisecond counter. Callers already
+        // difference these as int32_t for that reason, which stays correct across the wrap.
+        return (uint32_t)(((uint64_t)ts.tv_sec * 1000) + ((uint64_t)ts.tv_nsec / 1000000));
 #endif
 }
 uint32_t light_platform_get_time_since_init()
