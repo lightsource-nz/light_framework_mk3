@@ -10,25 +10,33 @@
 # misbehaviour rather than an error, and screen-test's launch.json named the rp2040 SVD for every
 # configuration including the RP2350 ones.
 #
-# HARDWARE-VERIFIED on a Pico 2 through a CMSIS-DAP probe, both paths:
-#   -ServerOnly reaches a live OpenOCD listening on 3333, with the probe named and the config,
-#     SVD and ELF all resolved;
-#   the default path launches gdb, connects to localhost:3333, runs `monitor reset init` and
-#     loads the image -- confirmed by gdb reporting every section written and a transfer rate.
-#
-# The one thing still unproven is the handover to an INTERACTIVE session, because the test drove
-# gdb with stdin closed; gdb then hits EOF, reports "error detected on stdin" and exits with a
-# large negative status. That is the harness, not this script -- OpenOCD is still torn down
-# correctly by the finally block below -- but it is why there is no -Batch mode here yet: a
-# non-interactive caller currently has no clean way to say what it wants gdb to DO.
+# HARDWARE-VERIFIED on a Pico 2 through a CMSIS-DAP probe, all three paths: -ServerOnly reaches a
+# live OpenOCD on 3333; the default path launches gdb, connects, resets and loads the image
+# (confirmed by gdb reporting every section written and a transfer rate); and -Batch runs to
+# completion and exits 0, or nonzero when a command fails.
 #
 # USAGE:  light-debug.ps1 [-Target <name>] [-Preset <name>] [-ServerOnly] [-Attach] [-NoBuild]
+#                         [-Ex <cmd>[,<cmd>...]] [-Batch]
+#
+#   -Ex appends gdb commands after the standard ones, in order. COMMA-SEPARATED for more than
+# one: it is a PowerShell array parameter, so `-Ex 'a' -Ex 'b'` is an error rather than two
+# commands.
+#   -Batch runs gdb non-interactively -- it executes the commands and exits, and this script then
+# exits with gdb's status instead of handing over a prompt.
+#
+#   the two together are what make this usable from CI:
+#
+#     light-debug.ps1 -Batch                              # load the image over SWD and stop
+#     light-debug.ps1 -Batch -Ex 'monitor reset run'      # load it and leave the board running
+#     light-debug.ps1 -Ex 'break main'                    # interactive, stopped at main
 param(
         [string]$Target,
         [string]$Preset,
         [switch]$ServerOnly,
         [switch]$Attach,
         [switch]$NoBuild,
+        [string[]]$Ex,
+        [switch]$Batch,
         [string]$ProjectRoot
 )
 
@@ -170,18 +178,42 @@ try {
         if (-not $gdb) { $gdb = Find-LightTool -Name "gdb-multiarch$exe" }
         if (-not $gdb) { throw "no arm-none-eabi-gdb (or gdb-multiarch) found: set LIGHT_ARM_GDB_DIR, unpack a toolchain under '$tools', or install one on PATH" }
 
-        # -Attach leaves the image on the board alone, which is what you want when debugging
-        # something already running; the default loads the ELF you just built
-        $gdbArgs = @('-ex', 'target extended-remote localhost:3333')
+        $gdbArgs = @()
+        # -batch executes the commands and exits, with gdb's status. It must come before them
+        if ($Batch) { $gdbArgs += '-batch' }
+        $gdbArgs += @('-ex', 'target extended-remote localhost:3333')
+
+        #   -Attach leaves the image on the board alone, which is what you want when debugging
+        # something already running; the default loads the ELF just built.
+        #
+        #   NOTE THE SECOND RESET, which is not redundant. `load` writes flash and sets gdb's
+        # idea of the PC to the entry point, but it does NOT re-apply the vector table: the stack
+        # pointer is still whatever the PREVIOUS image left, and on a Cortex-M that is read from
+        # the vector table at reset and nowhere else. Continuing from there runs the new code on
+        # the old stack, which mostly works and occasionally corrupts memory in a way that looks
+        # like a bug in whatever you were about to debug. Resetting after the load starts the new
+        # image the way the hardware would.
         if (-not $Attach) {
-                $gdbArgs += @('-ex', 'monitor reset init', '-ex', 'load')
+                $gdbArgs += @('-ex', 'monitor reset init', '-ex', 'load', '-ex', 'monitor reset init')
         }
+
+        # caller's commands last, so they can rely on the image being loaded and the target halted
+        foreach ($c in @($Ex)) { if ($c) { $gdbArgs += @('-ex', $c) } }
         $gdbArgs += $elf
 
         & $gdb @gdbArgs
+        $gdbExit = $LASTEXITCODE
 } finally {
         if (-not $server.HasExited) {
                 Write-Host "stopping OpenOCD"
                 Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
         }
+}
+
+#   gdb's status becomes this script's, but ONLY under -Batch. Interactively it is meaningless --
+# quitting a session with a breakpoint still set, or Ctrl-C'ing out, exits nonzero and says
+# nothing about whether anything went wrong. A CI caller passes -Batch and gets an answer it can
+# branch on; a human gets one it would only have to ignore.
+if ($Batch -and $gdbExit -ne 0) {
+        throw "gdb exited with code $gdbExit"
 }
