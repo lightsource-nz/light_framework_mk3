@@ -87,27 +87,35 @@ foreach ($dep in @(
 }
 foreach ($kv in @($cov.CMakeArgs)) { if ($kv) { $extra += $kv } }
 
-$worker = "$lightWsl/scripts/light-coverage.sh"
+$worker = "$lightWsl/scripts/light-coverage-worker.ps1"
 $ignore = $cov.IgnoreRegex ? $cov.IgnoreRegex : '(/lib/|/usr/|sanitizers/|_deps/)'
 
-#   parameters go in a sourced file rather than on the command line. wsl.exe joins its arguments
-# into a single command line which bash re-parses, so an ignore-regex containing '(' or '|' is
-# taken as shell syntax and the run dies before it starts. Written with LF endings because it is
-# read by bash
-$paramsWin = Join-Path $covRoot 'params.sh'
+#   parameters go in a FILE rather than on the command line. wsl.exe joins its arguments into a
+# single command line that is then re-parsed, so an ignore-regex containing '(' or '|' would be
+# read as syntax and the run would die before it started. A file is quoted once, here, and never
+# re-parsed.
+#   a .ps1 returning a hashtable, the same shape as project.config.ps1 -- the worker is
+# PowerShell now, so this is data it can simply evaluate rather than a shell fragment it has to
+# source. Written with LF endings: it is read by pwsh on Linux either way
+$paramsWin = Join-Path $covRoot 'params.ps1'
+#   $HOME must expand on the FAR side (the WSL home, not this one), so it is emitted unexpanded
+# and quoted in a way pwsh over there will interpolate
+$buildExpr = $buildWsl.StartsWith('$HOME') ? "`"$buildWsl`"" : "'$buildWsl'"
 $lines = @(
-        "src='$srcWsl'",
-        "build=`"$buildWsl`"",          # double quotes: $HOME must expand inside WSL
-        "html='$htmlWsl'",
-        "objglob='$($cov.Objects)'",
-        "ignore='$ignore'",
-        "light='$lightWsl'",
-        "functions='$Functions'",
-        "reuse='$($Reuse ? 1 : 0)'",
-        "extra_args=($(($extra | ForEach-Object { "'$_'" }) -join ' '))"
+        '@{',
+        "        Source      = '$srcWsl'",
+        "        Build       = $buildExpr",
+        "        Html        = '$htmlWsl'",
+        "        Objects     = '$($cov.Objects)'",
+        "        IgnoreRegex = '$ignore'",
+        "        LightPath   = '$lightWsl'",
+        "        Functions   = '$Functions'",
+        "        Reuse       = `$$($Reuse ? 'true' : 'false')",
+        "        CMakeArgs   = @($(($extra | ForEach-Object { "'$_'" }) -join ', '))",
+        '}'
 )
 [System.IO.File]::WriteAllText($paramsWin, ($lines -join "`n") + "`n")
-$paramsWsl = "$(ConvertTo-LightWslPath $covRoot)/params.sh"
+$paramsWsl = "$(ConvertTo-LightWslPath $covRoot)/params.ps1"
 
 Write-Host "platform: $(Get-LightPlatform)$(if ($useWsl) { " (worker runs in WSL '$Distro')" })"
 Write-Host "project : $($config.Name)"
@@ -116,13 +124,17 @@ Write-Host "build   : $buildWsl$(if ($useWsl) { ' (WSL filesystem)' })"
 Write-Host ""
 
 if ($useWsl) {
-        & wsl.exe -d $Distro -- bash $worker $paramsWsl
+        #   the absolute path to pwsh inside the distro, discovered rather than assumed: a
+        # non-login `wsl -- pwsh` does not see ~/.local/bin, which is where a tarball install
+        # puts it, so the obvious invocation fails on a machine where pwsh works perfectly well
+        $wslPwsh = Get-LightWslPwsh -Distro $Distro
+        if (-not $wslPwsh) {
+                throw "no pwsh found inside WSL distro '$Distro'. The coverage worker is a PowerShell script, so the distro needs PowerShell 7 installed -- see https://learn.microsoft.com/powershell/scripting/install/install-debian (a tarball into ~/powershell with a symlink on PATH is enough)."
+        }
+        & wsl.exe -d $Distro -- $wslPwsh -NoProfile -File $worker $paramsWsl
 } else {
-        #   the same worker, run directly. `bash` explicitly rather than relying on the file's
-        # execute bit, which does not survive a checkout onto a filesystem that does not carry it
-        $bash = Find-LightTool -Name 'bash'
-        if (-not $bash) { throw "coverage needs bash to run $worker, and it is not on PATH" }
-        & $bash $worker $paramsWsl
+        # already running under pwsh on Linux, so the worker is simply invoked
+        & $worker $paramsWsl
 }
 $rc = $LASTEXITCODE
 

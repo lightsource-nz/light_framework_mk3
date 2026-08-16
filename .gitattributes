@@ -7,8 +7,10 @@
 # broken and does not look broken -- it is a checkout artifact, and it only appears on a fresh
 # clone, which is the least convenient moment to meet it.
 #
-#   scripts/light-coverage.sh is run by bash on both platforms (directly on Linux, inside WSL on
-# Windows), so it is exposed either way.
+#   this repo currently contains no shell scripts -- scripts/light-coverage.sh became
+# light-coverage-worker.ps1, so the whole layer is one language. The rule is kept anyway: it costs
+# nothing, and the failure it prevents is one nobody would think to look for when the first .sh
+# reappears.
 *.sh    text eol=lf
 *.bash  text eol=lf
 

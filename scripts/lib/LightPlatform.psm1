@@ -78,6 +78,22 @@ function Test-LightWsl {
         return [bool]($distros -contains $Distro)
 }
 
+#   the absolute path to pwsh INSIDE a WSL distro, or $null.
+#
+#   discovery is necessary rather than paranoid: `wsl -d <distro> -- pwsh` runs a NON-login shell,
+# whose PATH does not include ~/.local/bin, which is exactly where a tarball install of PowerShell
+# puts its symlink. So the obvious invocation fails with "pwsh: command not found" on a machine
+# that has pwsh installed and working. Asking a login shell once, then using the absolute path it
+# reports, works regardless of how it was installed.
+function Get-LightWslPwsh {
+        param([string]$Distro = 'Debian')
+
+        if (-not $IsWindows) { return $null }
+        $found = (& wsl.exe -d $Distro -- bash -lc 'command -v pwsh' 2>$null)
+        if ($LASTEXITCODE -ne 0 -or -not $found) { return $null }
+        return ($found -replace "`0", '').Trim()
+}
+
 # C:\Users\x\y -> /mnt/c/Users/x/y. Windows-only by definition; on Linux a path is already the
 # path WSL would see, because there is no WSL.
 function ConvertTo-LightWslPath {
@@ -194,5 +210,5 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 }
 
 Export-ModuleMember -Function Get-LightPlatform, Get-LightExeSuffix, Get-LightPathSeparator,
-        Get-LightToolRoot, Find-LightTool, Test-LightWsl, ConvertTo-LightWslPath,
+        Get-LightToolRoot, Find-LightTool, Test-LightWsl, Get-LightWslPwsh, ConvertTo-LightWslPath,
         Find-LightSerialPort, Get-LightBootselVolume

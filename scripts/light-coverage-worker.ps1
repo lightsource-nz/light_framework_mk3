@@ -1,0 +1,214 @@
+# Linux-side worker for light-coverage.ps1 -- the half that runs where clang and llvm-cov are.
+#
+# THE SAME SCRIPT ON BOTH PLATFORMS: on Linux it is run directly, on Windows it is run inside
+# WSL. Nothing in here knows the difference, which is deliberate -- the platform decision is made
+# once, in light-coverage.ps1, and everything below operates on Linux paths the caller has
+# already translated (a no-op on Linux).
+#
+# WHY POWERSHELL AND NOT BASH, which it was until now: the layer already requires pwsh on Linux,
+# so a bash worker was the only file in it written in a second language, with its own quoting
+# rules, its own array syntax and its own way of being wrong. One language means one set of
+# habits. The cost is that WSL must have pwsh installed, which the launcher checks for and says
+# so plainly -- see Get-LightWslPwsh.
+#
+# TAKES ONE ARGUMENT: a parameter file, which is a .ps1 returning a hashtable -- the same shape
+# as project.config.ps1. Not positional arguments: wsl.exe joins whatever it is given into a
+# single command line that is then re-parsed, so an ignore-regex containing '(' or '|' would be
+# read as syntax and the run would die before it started. A file is quoted once, by the writer,
+# and never re-parsed.
+#
+# USAGE: pwsh -NoProfile -File light-coverage-worker.ps1 <params-file.ps1>
+param(
+        [Parameter(Mandatory)] [string]$ParamsFile
+)
+
+$ErrorActionPreference = 'Stop'
+
+$p = & $ParamsFile
+if ($p -isnot [hashtable]) { throw "params file '$ParamsFile' must return a hashtable" }
+
+$src       = $p.Source
+$build     = $p.Build
+$html      = $p.Html
+$objglob   = $p.Objects
+$ignore    = $p.IgnoreRegex
+$light     = $p.LightPath
+$functions = $p.Functions
+$reuse     = [bool]$p.Reuse
+$extraArgs = @($p.CMakeArgs)
+
+#   the versioned binaries where they exist, the unversioned ones otherwise. Debian ships
+# llvm-cov-19 with no unsuffixed alias unless llvm-defaults is installed
+$profdata = 'llvm-profdata-19'
+$cov      = 'llvm-cov-19'
+if (-not (Get-Command $profdata -ErrorAction SilentlyContinue)) {
+        $profdata = 'llvm-profdata'; $cov = 'llvm-cov'
+}
+if (-not (Get-Command $cov -ErrorAction SilentlyContinue)) {
+        throw "no llvm-cov found (looked for llvm-cov-19 and llvm-cov). Install clang and the llvm tools in this environment."
+}
+
+# native exit codes, not exceptions: $ErrorActionPreference does not apply to them
+function Invoke-Checked {
+    param([string]$What, [scriptblock]$Body, [string]$LogFile)
+
+    & $Body
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "$What FAILED"
+        if ($LogFile -and (Test-Path $LogFile)) { Get-Content $LogFile -Tail 25 }
+        exit 1
+    }
+}
+
+#   -Reuse reports off whatever is already in the tree. Guarded on the profile actually being
+# there: falling back to a full run is right, silently reporting nothing is not
+$skipBuild = $false
+if ($reuse -and (Test-Path (Join-Path $build 'cov.profdata'))) {
+        Write-Host "== reusing existing profile data =="
+        $skipBuild = $true
+}
+
+if (-not $skipBuild) {
+        #   -fprofile-instr-generate/-fcoverage-mapping are clang spellings, so CMAKE_CXX_COMPILER
+        # has to be clang++ as well: these projects enable C, CXX and ASM, and CMake otherwise
+        # picks /usr/bin/c++ (g++), which rejects the flag while linking its own compiler test.
+        #   the warning suppressions are not cosmetic -- this code is built with gcc day to day
+        # and clang is stricter about several things that are not what we are measuring here
+        Write-Host "== configuring coverage build =="
+        $cfgLog = "$build.cfg.log"
+        Invoke-Checked -What 'CONFIGURE' -LogFile $cfgLog -Body {
+                cmake -S $src -B $build -G Ninja `
+                        -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ `
+                        -DCMAKE_BUILD_TYPE=Debug -DLIGHT_RUN_MODE=DEBUG `
+                        "-DCMAKE_C_FLAGS=-fprofile-instr-generate -fcoverage-mapping -g -Wno-implicit-function-declaration -Wno-int-conversion" `
+                        "-DCMAKE_EXE_LINKER_FLAGS=-fprofile-instr-generate" `
+                        @extraArgs *> $cfgLog
+        }
+
+        Write-Host "== building =="
+        $buildLog = "$build.build.log"
+        Invoke-Checked -What 'BUILD' -LogFile $buildLog -Body { cmake --build $build *> $buildLog }
+
+        Write-Host "== running tests =="
+        $profDir = Join-Path $build 'prof'
+        if (Test-Path $profDir) { Remove-Item -Recurse -Force $profDir }
+        New-Item -ItemType Directory -Force -Path $profDir | Out-Null
+
+        #   %p gives each test PROCESS its own counter file; ctest runs many, and a single shared
+        # file would have them overwrite each other
+        $env:LLVM_PROFILE_FILE = Join-Path $profDir '%p.profraw'
+        $ctestLog = "$build.ctest.log"
+        #   NOT Invoke-Checked: a failing suite still produced profile data, and reporting
+        # coverage for a red run is useful. The pass/fail line is echoed either way
+        ctest --test-dir $build *> $ctestLog
+        $summary = (Select-String -Path $ctestLog -Pattern 'tests passed' | Select-Object -First 1)
+        if ($summary) { Write-Host "   $($summary.Line.Trim())" }
+
+        $raw = @(Get-ChildItem (Join-Path $profDir '*.profraw') -ErrorAction SilentlyContinue)
+        if ($raw.Count -eq 0) {
+                Write-Host "NO PROFILE DATA -- the suite ran no instrumented binaries"
+                exit 1
+        }
+        Write-Host "   $($raw.Count) profile files"
+
+        Invoke-Checked -What 'PROFDATA MERGE' -Body {
+                & $profdata merge -sparse @($raw.FullName) -o (Join-Path $build 'cov.profdata')
+        }
+}
+
+#   every test binary has to be named: llvm-cov reads the coverage map out of the objects, so a
+# binary left out simply does not appear, silently understating the result.
+#   'auto' discovers every instrumented executable in the tree, which is what projects whose test
+# binaries sit at several different depths need (screen-test puts them under light_audio/, rend/
+# and light_framework/test/ alike). CMakeFiles holds the compiler-probe binaries, which carry no
+# coverage map and would only add noise.
+#
+#   THE EXECUTABLE BIT IS NOT A RELIABLE FILTER, and this is the most important check in the
+# file. A build tree on a Windows drive -- /mnt/c under WSL, or the project directory itself on a
+# Linux host mounting one -- reports EVERY file as executable, so cmake_install.cmake and
+# context.json sail straight through it. Handing either to llvm-cov fails the whole run with
+# 'not recognized as a valid object file' or 'invalid tapi_tbd_version section', neither of which
+# points at the actual problem. It used to guard only the 'auto' branch, and the glob branch got
+# away with it purely because the tree happened to live on ext4; both go through it now.
+function Test-IsElf {
+        param([string]$Path)
+
+        if (-not (Test-Path $Path -PathType Leaf)) { return $false }
+        try {
+                $fs = [System.IO.File]::OpenRead($Path)
+                try {
+                        $magic = [byte[]]::new(4)
+                        if ($fs.Read($magic, 0, 4) -ne 4) { return $false }
+                        return ($magic[0] -eq 0x7F -and $magic[1] -eq 0x45 -and
+                                $magic[2] -eq 0x4C -and $magic[3] -eq 0x46)   # \x7F E L F
+                } finally { $fs.Dispose() }
+        } catch { return $false }
+}
+
+$bins = @()
+if ($objglob -eq 'auto') {
+        $bins = @(Get-ChildItem -Path $build -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object {
+                        $_.FullName -notmatch '/CMakeFiles/' -and
+                        $_.FullName -notmatch '_deps' -and
+                        $_.Name -notmatch '\.(so|a|cmake)$' -and
+                        $_.Name -notmatch '\.so\.'
+                } |
+                Where-Object { Test-IsElf $_.FullName } |
+                ForEach-Object { $_.FullName })
+} else {
+        $bins = @(Get-ChildItem -Path (Join-Path $build $objglob) -ErrorAction SilentlyContinue |
+                Where-Object { Test-IsElf $_.FullName } |
+                ForEach-Object { $_.FullName })
+}
+
+if ($bins.Count -eq 0) {
+        Write-Host "NO OBJECTS matched '$objglob' under $build"
+        exit 1
+}
+Write-Host "   $($bins.Count) instrumented binaries"
+
+# -object per binary, which is how llvm-cov takes more than one
+$objs = @()
+foreach ($b in $bins) { $objs += @('-object', $b) }
+$profData = Join-Path $build 'cov.profdata'
+
+Write-Host ""
+#   stderr deliberately NOT discarded. llvm-cov reports "functions have mismatched data" and
+# similar on stderr while still printing a table, and swallowing that turns a wrong number into a
+# silent one
+& $cov report @objs "-instr-profile=$profData" "-ignore-filename-regex=$ignore"
+if ($LASTEXITCODE -ne 0) { Write-Host "REPORT FAILED"; exit 1 }
+
+#   the per-function view. Sources are searched for under the project AND the framework, because
+# a project's build pulls light_core's sources in from outside its own tree, and the file you
+# want broken down is as often one of those as one of its own
+if ($functions) {
+        $roots = @($src)
+        if ($light) { $roots += $light }
+        $srcs = @($roots | ForEach-Object {
+                        Get-ChildItem -Path $_ -Recurse -File -Filter $functions -ErrorAction SilentlyContinue
+                } |
+                Where-Object { $_.FullName -notmatch '/build' -and $_.FullName -notmatch '_deps' } |
+                ForEach-Object { $_.FullName } | Sort-Object -Unique)
+
+        Write-Host ""
+        if ($srcs.Count -eq 0) {
+                Write-Host "no source file matching '$functions' under $src$(if ($light) { " or $light" })"
+        } else {
+                Write-Host "== per-function coverage: $functions =="
+                #   the first binary goes POSITIONALLY and the rest as -object. Passing them all
+                # as -object makes llvm-cov read the SOURCE argument as the main binary, which
+                # fails with 'not a valid object file' and reads like a broken source path rather
+                # than a missing binary
+                & $cov report $bins[0] @($objs[2..($objs.Count - 1)]) `
+                        "-instr-profile=$profData" -show-functions @srcs
+                if ($LASTEXITCODE -ne 0) { Write-Host "PER-FUNCTION REPORT FAILED" }
+        }
+}
+
+if (Test-Path $html) { Remove-Item -Recurse -Force $html }
+& $cov show @objs "-instr-profile=$profData" "-ignore-filename-regex=$ignore" `
+        -format=html "-output-dir=$html" -show-line-counts-or-regions *> $null
+Write-Host ""
+Write-Host "html report: $html/index.html"
