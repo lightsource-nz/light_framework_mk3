@@ -1,0 +1,168 @@
+# Reusable: build one firmware configuration of a light project and keep the images.
+#
+# The companion to project-test.yml; see that file for why the sibling layout is the whole trick
+# and why CI drives the project's own scripts rather than cmake.
+#
+# ONE PRESET PER CALL, deliberately. Presets in these projects share build directories on purpose
+# -- all six crossfire presets resolve to ${sourceDir}/build -- so two configurations cannot be
+# built in one job without wiping between them. A matrix in the caller gives each its own runner
+# and therefore its own tree, which is both simpler and faster than serialising them.
+#
+# USAGE (from a project's own workflow):
+#
+#     jobs:
+#       firmware:
+#         strategy:
+#           fail-fast: false
+#           matrix:
+#             include:
+#               - name: rp2040
+#                 preset: conf-crossfire-debug
+#                 targets: crossfire_main
+#                 tree: build
+#         name: ${{ matrix.name }}
+#         uses: lightsource-nz/light_framework_mk3/.github/workflows/project-build.yml@main
+#         with:
+#           project: crossfire
+#           preset: ${{ matrix.preset }}
+#           targets: ${{ matrix.targets }}
+#           tree: ${{ matrix.tree }}
+#           light_display: true
+#           font_crusher: true
+#           pico_sdk: true
+name: light project firmware build
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: 'directory to check this repository out into; also the working directory'
+        type: string
+        required: true
+      preset:
+        description: 'CMake configure preset to build'
+        type: string
+        required: true
+      targets:
+        description: 'space-separated target names to build with scripts/build.ps1'
+        type: string
+        required: true
+      tree:
+        description: 'build directory the preset owns, relative to the project (for artifacts)'
+        type: string
+        required: true
+      light_display:
+        type: boolean
+        default: false
+      font_crusher:
+        type: boolean
+        default: false
+      pico_sdk:
+        description: 'not needed by bare-CMSIS targets such as the STM32H7 board'
+        type: boolean
+        default: false
+      arm_toolchain_version:
+        description: 'pinned deliberately -- an embedded build is not toolchain-agnostic; this
+          should match the version developers use, since the toolchain decides code size and, in
+          one case here, whether an instruction-set probe passed at all'
+        type: string
+        default: 14.2.rel1
+      framework_ref:
+        type: string
+        default: main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.project }}
+          submodules: recursive
+
+      - uses: actions/checkout@v4
+        with:
+          repository: lightsource-nz/light_framework_mk3
+          ref: ${{ inputs.framework_ref }}
+          path: light_framework_mk3
+          submodules: recursive
+
+      - uses: actions/checkout@v4
+        if: inputs.light_display
+        with:
+          repository: lightsource-nz/light_display
+          path: light_display
+
+      - uses: actions/checkout@v4
+        if: inputs.font_crusher
+        with:
+          repository: lightsource-nz/font-crusher
+          path: font-crusher
+          submodules: recursive
+
+      - uses: actions/checkout@v4
+        if: inputs.pico_sdk
+        with:
+          repository: lightsource-nz/pico-sdk
+          ref: master
+          path: pico-sdk
+          submodules: true
+
+      - name: install build tools
+        run: |
+          sudo apt-get update
+          # libusb + pkg-config are for picotool, which the SDK builds from source to produce the
+          # UF2s; without them its configure fails in a way that names only picotool
+          sudo apt-get install -y ninja-build libusb-1.0-0-dev pkg-config
+
+      - name: cache arm toolchain
+        id: arm-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/tools/arm-gnu-toolchain
+          key: arm-gnu-toolchain-${{ inputs.arm_toolchain_version }}-x86_64
+
+      #   unpacked to ~/tools/arm-gnu-toolchain because that is already one of the directories
+      # light-env.ps1 searches. Putting it on PATH here instead would work too, and would be a
+      # second place that has to agree with the scripts
+      - name: install arm toolchain
+        if: steps.arm-cache.outputs.cache-hit != 'true'
+        env:
+          ARM_VERSION: ${{ inputs.arm_toolchain_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/tools
+          base="arm-gnu-toolchain-${ARM_VERSION}-x86_64-arm-none-eabi"
+          curl -fsSL --retry 3 \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_VERSION}/binrel/${base}.tar.xz" \
+            -o /tmp/arm.tar.xz
+          tar -xf /tmp/arm.tar.xz -C ~/tools
+          mv ~/tools/"$base" ~/tools/arm-gnu-toolchain
+
+      #   one invocation per target: the first configures the tree, the rest reuse it.
+      # build.ps1 throws on a non-zero cmake exit, and it now also refuses a tree belonging to
+      # another preset rather than building it and reporting success for this one
+      - name: build
+        working-directory: ${{ inputs.project }}
+        shell: pwsh
+        run: |
+          foreach ($t in "${{ inputs.targets }}".Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) {
+                  ./scripts/build.ps1 -Target $t -Preset "${{ inputs.preset }}"
+          }
+
+      #   all four kinds, because the target platforms disagree about which they produce: the RP2
+      # boards get .uf2 and .elf from pico_add_extra_outputs(), while the bare-CMSIS STM32 target
+      # is a plain executable with .bin/.hex objcopy'd beside it and no extension of its own.
+      # Listing all four keeps this workflow indifferent to which kind of board it just built.
+      #   if-no-files-found: error, because an upload that quietly matches nothing is how a green
+      # run ends up with an empty artifact
+      - name: upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.preset }}
+          if-no-files-found: error
+          path: |
+            ${{ inputs.project }}/${{ inputs.tree }}/module/*/*.uf2
+            ${{ inputs.project }}/${{ inputs.tree }}/module/*/*.elf
+            ${{ inputs.project }}/${{ inputs.tree }}/module/*/*.bin
+            ${{ inputs.project }}/${{ inputs.tree }}/module/*/*.hex
