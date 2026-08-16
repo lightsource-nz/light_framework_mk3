@@ -11,9 +11,9 @@
 # they train you to ignore linker warnings, which is the last habit you want on an embedded
 # project. -Verbose shows everything.
 #
-# USAGE:  light-build.ps1 -Target <name> [-Preset <name>] [-Clean] [-Verbose]
+# USAGE:  light-build.ps1 [-Target <name>] [-Preset <name>] [-Clean] [-Verbose]
 param(
-        [Parameter(Mandatory)] [string]$Target,
+        [string]$Target,
         [string]$Preset,
         [switch]$Clean,
         [string]$ProjectRoot
@@ -24,6 +24,9 @@ Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
 . (Join-Path $PSScriptRoot 'light-env.ps1') -Quiet
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
+#   defaults to the project's DefaultTarget, so a bare invocation does the obvious thing from
+# a terminal and CI need not encode a target name it would have to keep in step
+if (-not $Target) { $Target = Resolve-LightDefaultTarget -Config $config }
 if (-not $Preset) { $Preset = Resolve-LightTargetPreset -Config $config -Target $Target }
 $tree = Resolve-LightTree -Config $config -Preset $Preset
 

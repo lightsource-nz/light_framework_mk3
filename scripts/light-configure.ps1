@@ -10,9 +10,9 @@
 # So this refuses by default and tells you what the tree actually holds. -Force wipes it, which
 # is the only correct way to move a tree from one preset to another.
 #
-# USAGE:  light-configure.ps1 -Preset <name> [-Force] [-ProjectRoot <path>]
+# USAGE:  light-configure.ps1 [-Preset <name>] [-Force] [-ProjectRoot <path>]
 param(
-        [Parameter(Mandatory)] [string]$Preset,
+        [string]$Preset,
         [switch]$Force,
         [string]$ProjectRoot
 )
@@ -22,6 +22,9 @@ Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
 . (Join-Path $PSScriptRoot 'light-env.ps1') -Quiet
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
+#   defaults to the project's DefaultPreset, or to whichever preset owns its DefaultTarget --
+# which is the preset a bare `build.ps1` would use, so the two agree by construction
+if (-not $Preset) { $Preset = Resolve-LightDefaultPreset -Config $config }
 $tree = Resolve-LightTree -Config $config -Preset $Preset
 
 if (Test-Path $tree) {

@@ -136,6 +136,33 @@ function Format-LightTreeIdentity {
         return (($Identity.GetEnumerator() | Where-Object { $_.Value } | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', ')
 }
 
+#   the target to act on when the caller named none. Every utility script defaults its otherwise
+# mandatory parameters, so that `scripts/build.ps1` with no arguments does the obvious thing from
+# a terminal, and a CI job does not have to encode a target name it would then have to keep in
+# step with the project.
+#
+#   a missing DefaultTarget is a configuration error rather than a prompt: these scripts have to
+# run non-interactively, and PowerShell's own Mandatory prompt is exactly the behaviour being
+# removed -- in CI it hangs waiting on stdin that never comes.
+function Resolve-LightDefaultTarget {
+        param([Parameter(Mandatory)] [hashtable]$Config)
+
+        if ($Config.DefaultTarget) { return $Config.DefaultTarget }
+        $known = if ($Config.Targets) { ($Config.Targets.Keys | Sort-Object) -join ', ' } else { '(none declared)' }
+        throw "no target given and '$($Config.Name)' declares no DefaultTarget in scripts/project.config.ps1. Pass -Target, or add one. Known targets: $known"
+}
+
+#   the preset to configure when the caller named none: an explicit DefaultPreset if the project
+# declares one, otherwise whichever preset owns the default target -- which is the preset a bare
+# `build.ps1` would use anyway, so the two stay consistent by construction
+function Resolve-LightDefaultPreset {
+        param([Parameter(Mandatory)] [hashtable]$Config)
+
+        if ($Config.DefaultPreset) { return $Config.DefaultPreset }
+        $target = Resolve-LightDefaultTarget -Config $Config
+        return (Resolve-LightTargetPreset -Config $Config -Target $target)
+}
+
 # Which preset builds this target, from the project config.
 function Resolve-LightTargetPreset {
         param(
@@ -152,4 +179,5 @@ function Resolve-LightTargetPreset {
 
 Export-ModuleMember -Function Get-LightProjectRoot, Get-LightProjectConfig, Resolve-LightTree,
         Get-LightTreePreset, Set-LightTreePreset, Get-LightTreeIdentity, Format-LightTreeIdentity,
-        Test-LightTreeMatchesPreset, Resolve-LightTargetPreset
+        Test-LightTreeMatchesPreset, Resolve-LightTargetPreset,
+        Resolve-LightDefaultTarget, Resolve-LightDefaultPreset

@@ -19,9 +19,9 @@
 #
 # STM32 targets are not handled -- those flash over SWD from a .bin/.hex and have no UF2 path.
 #
-# USAGE:  light-flash.ps1 -Target <name> [-Preset <name>] [-NoBuild] [-TimeoutSeconds 15]
+# USAGE:  light-flash.ps1 [-Target <name>] [-Preset <name>] [-NoBuild] [-TimeoutSeconds 15]
 param(
-        [Parameter(Mandatory)] [string]$Target,
+        [string]$Target,
         [string]$Preset,
         [switch]$NoBuild,
         [int]$TimeoutSeconds = 15,
@@ -33,6 +33,9 @@ Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
+#   defaults to the project's DefaultTarget, so a bare invocation does the obvious thing from
+# a terminal and CI need not encode a target name it would have to keep in step
+if (-not $Target) { $Target = Resolve-LightDefaultTarget -Config $config }
 if (-not $Preset) { $Preset = Resolve-LightTargetPreset -Config $config -Target $Target }
 $tree = Resolve-LightTree -Config $config -Preset $Preset
 

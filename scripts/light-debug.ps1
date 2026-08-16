@@ -14,9 +14,9 @@
 # through to a live gdb session are untested; what is verified is that it resolves the right
 # config, SVD and ELF, and refuses clearly when no probe is present.
 #
-# USAGE:  light-debug.ps1 -Target <name> [-Preset <name>] [-ServerOnly] [-Attach] [-NoBuild]
+# USAGE:  light-debug.ps1 [-Target <name>] [-Preset <name>] [-ServerOnly] [-Attach] [-NoBuild]
 param(
-        [Parameter(Mandatory)] [string]$Target,
+        [string]$Target,
         [string]$Preset,
         [switch]$ServerOnly,
         [switch]$Attach,
@@ -30,6 +30,9 @@ Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
 . (Join-Path $PSScriptRoot 'light-env.ps1') -Quiet
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
+#   defaults to the project's DefaultTarget, so a bare invocation does the obvious thing from
+# a terminal and CI need not encode a target name it would have to keep in step
+if (-not $Target) { $Target = Resolve-LightDefaultTarget -Config $config }
 if (-not $Preset) { $Preset = Resolve-LightTargetPreset -Config $config -Target $Target }
 $tree = Resolve-LightTree -Config $config -Preset $Preset
 
