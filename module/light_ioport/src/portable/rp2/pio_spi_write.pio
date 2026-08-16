@@ -1,0 +1,39 @@
+;
+; write-only SPI master, mode 0 (CPOL=0, CPHA=0), MSB first -- used to emulate an extra
+; SPI master when both of the chip's real hardware SPI peripherals are already claimed
+; by something else (see crossfire's SPI-link test rig, which needs spi0 as a link-out
+; master and spi1 as a link-in slave, leaving no hardware SPI free for the status
+; display). MISO is intentionally not implemented -- every display this drives is
+; write-only from the host's side.
+;
+; side-set bit 0 drives SCK. MOSI updates and SCK drops low in the same cycle (data
+; setup), then SCK rises on its own the next cycle (data sample) -- CPHA0/CPOL0 timing.
+; autopull (threshold 8, shift left) is configured by the C init code below, so each
+; 'out pins,1' consumes the next bit of whichever byte was last pushed to the TX FIFO,
+; left-justified (byte << 24) by the caller
+;
+.program pio_spi_write
+.side_set 1
+
+    out pins, 1   side 0
+    nop           side 1
+
+% c-sdk {
+static inline void pio_spi_write_program_init(PIO pio, uint sm, uint offset, uint pin_mosi, uint pin_sck, float clkdiv) {
+    pio_sm_config c = pio_spi_write_program_get_default_config(offset);
+
+    sm_config_set_out_pins(&c, pin_mosi, 1);
+    sm_config_set_sideset_pins(&c, pin_sck);
+    sm_config_set_out_shift(&c, false, true, 8);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, clkdiv);
+
+    pio_gpio_init(pio, pin_mosi);
+    pio_gpio_init(pio, pin_sck);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_mosi, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_sck, 1, true);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
