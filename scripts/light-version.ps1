@@ -11,7 +11,7 @@
 # OUTPUT
 #   on an annotated tag, clean:      1.2.3
 #   5 commits past v1.2.3:           1.3.0-dev.5+feature-x.gabc1234
-#   no tags at all:                  0.0.0-dev.<commits>+<branch>.g<sha>
+#   no tags at all:                  0.1.0-dev.<commits>+<branch>.g<sha>
 #   dirty working tree:              ...+<branch>.g<sha>.dirty
 #
 # WHY THE VERSION IS BUMPED for a dev build: semver orders a pre-release BEFORE its release, so
@@ -59,9 +59,10 @@ if ($lastTag) {
         $count = [int]$Matches['count']
         $base = $Matches['tag'] -replace '^v', ''
 } else {
-        # no tags anywhere -- the state every one of these repos is in today. Count all commits
-        # so the number still increases monotonically, and start from 0.0.0 so the first real
-        # release necessarily sorts above anything built before it.
+        # no tags anywhere. Count all commits so the number still increases monotonically, and
+        # start from 0.0.0 -- which the bump below then carries to 0.1.0-dev.N, matching the
+        # 0.1.0 that light-release.ps1 mints for a repo with no tags. A pre-release sorts BEFORE
+        # its release, so that first real 0.1.0 necessarily sorts above every build made before it.
         $count = [int](git-in @('rev-list', '--count', 'HEAD'))
         $base = '0.0.0'
 }
