@@ -43,17 +43,77 @@ $extraArgs = @($p.CMakeArgs)
 # per case -- which is the worst case for a Windows drive seen through /mnt/c (or for any mounted
 # share on a Linux host).
 #
-#   MEASURED on light_framework_mk3, full configure + build + test from a clean tree:
-# 131.7s with the tree under the project on /mnt/c, 103.5s under $HOME -- about 21% off.
-# Worth having, and less than it sounds like it should be: the SOURCE still lives across the
-# mount and every compile reads it there. Only the writes moved. Do not expect the order of
-# magnitude that moving both would give.
+#   MEASURED on light_framework_mk3, full configure + build + test: 131.7s with both source and
+# tree on /mnt/c, 103.5s with the tree moved here. Moving the SOURCE as well (below) took it to
+# 16.6s warm. The tree alone was only 21% because the reads still crossed the mount.
 #
 #   only the HTML report is written back to the project, so it can be opened from the host.
 $work = Join-Path $HOME "cov-$($p.ProjectName)"
 $build = $work
 if (-not (Test-Path $work)) { New-Item -ItemType Directory -Force -Path $work | Out-Null }
 Write-Host "build   : $build"
+
+#   THE SOURCE IS MIRRORED TOO, when it lives across a mount. Moving only the build tree fixed
+# the writes; the reads turned out to cost more.
+#
+#   MEASURED on light_framework_mk3, source on /mnt/c:
+#     git status --porcelain      17.8-28.9s   |  on an ext4 mirror:  0.4s
+#     light-version.ps1           19.9s        |                      0.8s
+#     cmake configure             48.5s        |                     23.4s
+#   the version check is the one that hurts, because light_version.cmake runs it on EVERY build
+# by design (so a binary cannot report a commit it was not built from), and it is dominated by
+# git stat-ing every tracked file across the mount. No cheaper git incantation exists: -uno and
+# `git diff --quiet` measured 24s and 28.9s, i.e. no better. The filesystem crossing is the cost,
+# so the only fix is not to cross it.
+#
+#   rsync, not cp -au, and this is not a preference: cp -au measured 102.3s for an unchanged
+# tree, worse than everything it was meant to save, because it stats every file across the mount
+# one at a time. rsync incremental is 5.1s. A Windows-side robocopy push was also tried and is
+# slower than pulling from this side (5.4s vs 3.2s, and Windows-only).
+$canMirror = $src.StartsWith('/mnt/') -and (Get-Command rsync -ErrorAction SilentlyContinue)
+if ($src.StartsWith('/mnt/') -and -not $canMirror) {
+        Write-Host "note    : rsync not installed; building from the source across the mount, which is markedly slower (see the comments in this file)"
+}
+
+#   .git is INCLUDED deliberately -- the version step needs it, and it is the thing that was
+# slow. build*/ is excluded: those are large, regenerable, and some are the host's own trees,
+# which mean nothing over here
+function Sync-Mirror {
+        param([string]$From, [string]$Name)
+
+        $to = Join-Path $HOME "src-$Name"
+        rsync -a --delete --exclude 'build*/' "$From/" "$to/"
+        if ($LASTEXITCODE -ne 0) {
+                Write-Host "rsync of '$Name' failed -- using it in place instead"
+                return $From
+        }
+        return $to
+}
+
+$effectiveSrc = $src
+$effectiveLight = $light
+if ($canMirror) {
+        $effectiveSrc = Sync-Mirror -From $src -Name $p.ProjectName
+        Write-Host "mirror  : $effectiveSrc"
+
+        #   the framework is mirrored SEPARATELY when it is not the project being measured.
+        # LIGHT_PATH is what light_version.cmake runs git against on every build, so leaving it
+        # pointing across the mount would keep the 20s version check for screen-test, crossfire
+        # and font-crusher -- i.e. for every project except this one
+        if ($light -and $light -ne $src -and $light.StartsWith('/mnt/')) {
+                $effectiveLight = Sync-Mirror -From $light -Name 'light_framework_mk3'
+                Write-Host "        + framework mirrored to $effectiveLight"
+        } elseif ($light -eq $src) {
+                $effectiveLight = $effectiveSrc
+        }
+
+        #   rewrite the LIGHT_PATH the launcher passed, which names the original location.
+        # Everything else in CMakeArgs is a dependency the build only reads, so it can stay
+        # across the mount without costing a per-build git call
+        $extraArgs = @($extraArgs | ForEach-Object {
+                if ($_ -like '-DLIGHT_PATH=*') { "-DLIGHT_PATH=$effectiveLight" } else { $_ }
+        })
+}
 
 #   the versioned binaries where they exist, the unversioned ones otherwise. Debian ships
 # llvm-cov-19 with no unsuffixed alias unless llvm-defaults is installed
@@ -101,11 +161,26 @@ if (-not $skipBuild) {
         # and clang is stricter about several things that are not what we are measuring here
         Write-Host "== configuring coverage build =="
         $cfgLog = "$build.cfg.log"
+
+        #   -ffile-prefix-map rewrites the paths the compiler EMBEDS -- in the coverage mapping
+        # and in debug info -- back to where the source really lives. Without it the whole report
+        # describes $HOME/src-<project>, a copy nobody edits, and every filename in the HTML is a
+        # path that means nothing to the reader.
+        #   this is what makes mirroring invisible: the build reads fast local files, the report
+        # names the real ones, and llvm-cov needs no help reconciling them.
+        $prefixMaps = @()
+        if ($effectiveSrc -ne $src) { $prefixMaps += "-ffile-prefix-map=$effectiveSrc=$src" }
+        if ($effectiveLight -and $effectiveLight -ne $light) {
+                $prefixMaps += "-ffile-prefix-map=$effectiveLight=$light"
+        }
+        $cFlags = (@('-fprofile-instr-generate', '-fcoverage-mapping', '-g',
+                     '-Wno-implicit-function-declaration', '-Wno-int-conversion') + $prefixMaps) -join ' '
+
         Invoke-Checked -What 'CONFIGURE' -LogFile $cfgLog -Body {
-                cmake -S $src -B $build -G Ninja `
+                cmake -S $effectiveSrc -B $build -G Ninja `
                         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ `
                         -DCMAKE_BUILD_TYPE=Debug -DLIGHT_RUN_MODE=DEBUG `
-                        "-DCMAKE_C_FLAGS=-fprofile-instr-generate -fcoverage-mapping -g -Wno-implicit-function-declaration -Wno-int-conversion" `
+                        "-DCMAKE_C_FLAGS=$cFlags" `
                         "-DCMAKE_EXE_LINKER_FLAGS=-fprofile-instr-generate" `
                         @extraArgs *> $cfgLog
         }
@@ -205,11 +280,25 @@ $objs = @()
 foreach ($b in $bins) { $objs += @('-object', $b) }
 $profData = Join-Path $build 'cov.profdata'
 
+#   report paths are mapped back to the REAL source, so the tables and the HTML name the file
+# you would open in your editor rather than a copy under $HOME that nobody edits. Without this
+# the whole report silently describes a mirror, which is the kind of wrong that looks right.
+#   nothing needed here: -ffile-prefix-map (see the configure step) makes the compiler record
+# the ORIGINAL paths in the coverage mapping, so the report already names the files you would
+# open in an editor.
+#
+#   --path-equivalence was tried first and is the wrong tool. It tells llvm-cov where to FIND
+# sources whose recorded paths do not exist locally; it does not rewrite what the report
+# DISPLAYS. The text table hid that, because it prints paths relative to a common root, and the
+# mirror only showed up when the generated HTML was grepped -- 36 files still naming
+# /home/<user>/src-light_framework_mk3.
+$pathMap = @()
+
 Write-Host ""
 #   stderr deliberately NOT discarded. llvm-cov reports "functions have mismatched data" and
 # similar on stderr while still printing a table, and swallowing that turns a wrong number into a
 # silent one
-& $cov report @objs "-instr-profile=$profData" "-ignore-filename-regex=$ignore"
+& $cov report @objs @pathMap "-instr-profile=$profData" "-ignore-filename-regex=$ignore"
 if ($LASTEXITCODE -ne 0) { Write-Host "REPORT FAILED"; exit 1 }
 
 #   the per-function view. Sources are searched for under the project AND the framework, because
@@ -233,14 +322,14 @@ if ($functions) {
                 # as -object makes llvm-cov read the SOURCE argument as the main binary, which
                 # fails with 'not a valid object file' and reads like a broken source path rather
                 # than a missing binary
-                & $cov report $bins[0] @($objs[2..($objs.Count - 1)]) `
+                & $cov report $bins[0] @($objs[2..($objs.Count - 1)]) @pathMap `
                         "-instr-profile=$profData" -show-functions @srcs
                 if ($LASTEXITCODE -ne 0) { Write-Host "PER-FUNCTION REPORT FAILED" }
         }
 }
 
 if (Test-Path $html) { Remove-Item -Recurse -Force $html }
-& $cov show @objs "-instr-profile=$profData" "-ignore-filename-regex=$ignore" `
+& $cov show @objs @pathMap "-instr-profile=$profData" "-ignore-filename-regex=$ignore" `
         -format=html "-output-dir=$html" -show-line-counts-or-regions *> $null
 Write-Host ""
 Write-Host "html report: $html/index.html"
