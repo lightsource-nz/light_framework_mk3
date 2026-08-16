@@ -19,6 +19,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
+# for Get-LightExeSuffix in the smoke block. light-env.ps1 imports this too, so it would be in
+# scope anyway -- named here because relying on a dot-sourced script's imports is invisible
+Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
 . (Join-Path $PSScriptRoot 'light-env.ps1') -Quiet
 
 $config = Get-LightProjectConfig -ProjectRoot ($ProjectRoot ? $ProjectRoot : (Get-LightProjectRoot))
@@ -61,7 +64,19 @@ if ($test.Ctest) {
 
 foreach ($smoke in @($test.Smoke)) {
         if (-not $smoke) { continue }
+        #   the executable suffix is the platform's, not the config's. A project naming
+        # 'bin/crush.exe' is correct on Windows and wrong everywhere else, and a project naming
+        # 'bin/crush' is the reverse -- so both spellings are accepted and the one that exists
+        # wins. Without this, every smoke command is a "not built" failure on Linux, which reads
+        # as a broken build rather than a filename that never applied there.
         $exe = Join-Path $tree $smoke.Exe
+        if (-not (Test-Path $exe)) {
+                $suffix = Get-LightExeSuffix
+                $alt = if ($smoke.Exe -match '\.exe$') { $smoke.Exe -replace '\.exe$', '' }
+                       else { "$($smoke.Exe)$suffix" }
+                $altPath = Join-Path $tree $alt
+                if (Test-Path $altPath) { $exe = $altPath }
+        }
         if (-not (Test-Path $exe)) {
                 $failed += "smoke '$($smoke.Exe)' (not built)"
                 continue
