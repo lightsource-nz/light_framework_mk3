@@ -10,9 +10,10 @@
 # misbehaviour rather than an error, and screen-test's launch.json named the rp2040 SVD for every
 # configuration including the RP2350 ones.
 #
-# NOT HARDWARE-VERIFIED. No CMSIS-DAP probe was connected when this was written, so the paths
-# through to a live gdb session are untested; what is verified is that it resolves the right
-# config, SVD and ELF, and refuses clearly when no probe is present.
+# PARTLY HARDWARE-VERIFIED. Run against a Pico 2 through a CMSIS-DAP probe, -ServerOnly reaches a
+# live OpenOCD listening on 3333: the probe is detected and named, and the config, SVD and ELF all
+# resolve. What is still untested is the gdb half -- the default path that launches
+# arm-none-eabi-gdb, loads the image and hands over a session.
 #
 # USAGE:  light-debug.ps1 [-Target <name>] [-Preset <name>] [-ServerOnly] [-Attach] [-NoBuild]
 param(
