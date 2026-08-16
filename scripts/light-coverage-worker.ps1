@@ -56,53 +56,28 @@ Write-Host "build   : $build"
 #   THE SOURCE IS MIRRORED TOO, when it lives across a mount. Moving only the build tree fixed
 # the writes; the reads turned out to cost more.
 #
-#   MEASURED on light_framework_mk3, source on /mnt/c:
-#     git status --porcelain      17.8-28.9s   |  on an ext4 mirror:  0.4s
-#     light-version.ps1           19.9s        |                      0.8s
-#     cmake configure             48.5s        |                     23.4s
-#   the version check is the one that hurts, because light_version.cmake runs it on EVERY build
-# by design (so a binary cannot report a commit it was not built from), and it is dominated by
-# git stat-ing every tracked file across the mount. No cheaper git incantation exists: -uno and
-# `git diff --quiet` measured 24s and 28.9s, i.e. no better. The filesystem crossing is the cost,
-# so the only fix is not to cross it.
-#
-#   rsync, not cp -au, and this is not a preference: cp -au measured 102.3s for an unchanged
-# tree, worse than everything it was meant to save, because it stats every file across the mount
-# one at a time. rsync incremental is 5.1s. A Windows-side robocopy push was also tried and is
-# slower than pulling from this side (5.4s vs 3.2s, and Windows-only).
-$canMirror = $src.StartsWith('/mnt/') -and (Get-Command rsync -ErrorAction SilentlyContinue)
-if ($src.StartsWith('/mnt/') -and -not $canMirror) {
-        Write-Host "note    : rsync not installed; building from the source across the mount, which is markedly slower (see the comments in this file)"
-}
+#   Sync-LightWslMirror lives in lib/LightPlatform.psm1 rather than here, because this is not a
+# coverage concern: it is the cost of running ANYTHING in WSL against a tree on /mnt/, and every
+# WSL run should pay the mirror once rather than the crossing repeatedly. The measurements, and
+# why it is rsync rather than cp -au or a robocopy push, are documented at the function.
+Import-Module (Join-Path $PSScriptRoot 'lib/LightPlatform.psm1') -Force
 
-#   .git is INCLUDED deliberately -- the version step needs it, and it is the thing that was
-# slow. build*/ is excluded: those are large, regenerable, and some are the host's own trees,
-# which mean nothing over here
-function Sync-Mirror {
-        param([string]$From, [string]$Name)
-
-        $to = Join-Path $HOME "src-$Name"
-        rsync -a --delete --exclude 'build*/' "$From/" "$to/"
-        if ($LASTEXITCODE -ne 0) {
-                Write-Host "rsync of '$Name' failed -- using it in place instead"
-                return $From
-        }
-        return $to
-}
-
-$effectiveSrc = $src
+#   returns the source unchanged when there is nothing to gain (already native) or nothing to do
+# it with (no rsync), so the mirrored and unmirrored cases share one path below
+$effectiveSrc = Sync-LightWslMirror -From $src -Name $p.ProjectName
 $effectiveLight = $light
-if ($canMirror) {
-        $effectiveSrc = Sync-Mirror -From $src -Name $p.ProjectName
+if ($effectiveSrc -ne $src) {
         Write-Host "mirror  : $effectiveSrc"
 
         #   the framework is mirrored SEPARATELY when it is not the project being measured.
         # LIGHT_PATH is what light_version.cmake runs git against on every build, so leaving it
         # pointing across the mount would keep the 20s version check for screen-test, crossfire
         # and font-crusher -- i.e. for every project except this one
-        if ($light -and $light -ne $src -and $light.StartsWith('/mnt/')) {
-                $effectiveLight = Sync-Mirror -From $light -Name 'light_framework_mk3'
-                Write-Host "        + framework mirrored to $effectiveLight"
+        if ($light -and $light -ne $src) {
+                $effectiveLight = Sync-LightWslMirror -From $light -Name 'light_framework_mk3'
+                if ($effectiveLight -ne $light) {
+                        Write-Host "        + framework mirrored to $effectiveLight"
+                }
         } elseif ($light -eq $src) {
                 $effectiveLight = $effectiveSrc
         }
@@ -136,6 +111,25 @@ function Invoke-Checked {
         if ($LogFile -and (Test-Path $LogFile)) { Get-Content $LogFile -Tail 25 }
         exit 1
     }
+}
+
+#   a build tree remembers the source directory it was generated from, and CMake refuses to
+# reuse one whose source has moved: "The source ... does not match the source ... used to
+# generate cache." That is a hard stop with no suggested action beyond re-running by hand.
+#
+#   it happens for an ordinary reason -- the mirror location changed (it was ~/src-<name> before
+# it became ~/light-mirror/<name>, so that siblings resolve inside the mirror) -- and it will
+# happen again to anyone whose checkout moves. The tree is entirely regenerable, so wiping it is
+# the right answer rather than making a human read a CMake error and work out that rm is safe.
+$cacheFile = Join-Path $build 'CMakeCache.txt'
+if (Test-Path $cacheFile) {
+        $home_dir = (Select-String -Path $cacheFile -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$' |
+                Select-Object -First 1).Matches.Groups[1].Value
+        if ($home_dir -and $home_dir -ne $effectiveSrc) {
+                Write-Host "note    : tree was generated from '$home_dir', source is now '$effectiveSrc' -- reconfiguring from scratch"
+                Remove-Item -Recurse -Force $build
+                New-Item -ItemType Directory -Force -Path $build | Out-Null
+        }
 }
 
 #   -Reuse reports off whatever is already in the tree. Guarded on the profile actually being

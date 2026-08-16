@@ -105,6 +105,98 @@ function ConvertTo-LightWslPath {
         return "/mnt/$drive" + ($full.Substring(2) -replace '\\', '/')
 }
 
+#   Mirrors a source tree from a Windows mount onto the WSL filesystem, and returns the path to
+# use. Called from INSIDE the distro (the paths are Linux paths).
+#
+# WHY EVERY WSL RUN SHOULD USE THIS: reading a tree through /mnt/ is the dominant cost of any
+# build launched in WSL, and it is not a small factor.
+#
+#   MEASURED on light_framework_mk3, source on /mnt/c:
+#     git status --porcelain      17.8-28.9s   |  on an ext4 mirror:  0.4s
+#     light-version.ps1           19.9s        |                      0.8s
+#     cmake configure             48.5s        |                     23.4s
+#   the version check is the one that hurts, because light_version.cmake runs it on EVERY build
+# by design (so a binary cannot report a commit it was not built from), and it is dominated by
+# git stat-ing every tracked file across the mount. No cheaper git incantation exists: -uno and
+# `git diff --quiet` measured 24s and 28.9s. The crossing is the cost, so the fix is not to cross.
+#
+#   rsync, not cp -au, and that is a measurement rather than a preference: cp -au took 102.3s on
+# an UNCHANGED tree -- worse than what it was meant to save -- because it stats every file across
+# the mount one at a time. rsync incremental is 5.1s. A Windows-side robocopy push was also tried
+# and is slower than pulling from this side (5.4s vs 3.2s, and Windows-only).
+#
+#   .git is INCLUDED deliberately: the version step needs it, and it is the part that was slow.
+# build*/ is excluded -- large, regenerable, and some are the host's own trees, which mean
+# nothing over here.
+#
+#   MIRRORS INTO ONE SHARED ROOT, keeping each project's real directory name:
+#
+#     /mnt/c/Users/x/projects/c/screen-test   ->  ~/light-mirror/screen-test
+#     /mnt/c/Users/x/projects/c/light_display ->  ~/light-mirror/light_display
+#
+#   the layout is the point, not tidiness. Every project here resolves its dependencies as
+# ../<name> (see light_resolve_project and Resolve-LightDependency), so mirrors must remain
+# SIBLINGS OF EACH OTHER or that resolution silently escapes the mirror and goes back across the
+# mount -- or finds nothing at all. An earlier form named them ~/src-<name>, which broke exactly
+# that: from ~/src-screen-test, ../light_display is ~/light_display and does not exist. Coverage
+# survived it only because it passes LIGHT_PATH explicitly; a build or test run would not.
+#
+#   returns $From unchanged when there is nothing to gain (already native) or nothing to do it
+# with (no rsync), so callers can use the result unconditionally.
+function Sync-LightWslMirror {
+        param(
+                [Parameter(Mandatory)] [string]$From,
+                # what to call the mirror; defaults to the source directory's own name, which is
+                # what keeps sibling resolution working and is almost always what you want
+                [string]$Name
+        )
+
+        if (-not $From.StartsWith('/mnt/')) { return $From }
+        if (-not (Get-Command rsync -ErrorAction SilentlyContinue)) {
+                Write-Host "note    : rsync not installed; using '$From' across the mount, which is markedly slower"
+                return $From
+        }
+        if (-not $Name) { $Name = Split-Path $From -Leaf }
+
+        #   the root must exist first: rsync creates only the FINAL path component, so a
+        # destination two levels deep fails with `mkdir ... No such file or directory` and the
+        # caller falls back to the mount -- which is slow rather than broken, and so goes
+        # unnoticed exactly when you are trying to measure the mirror. (--mkpath would also do
+        # it, but is rsync 3.2.3+; creating the directory works everywhere.)
+        $root = Join-Path $HOME 'light-mirror'
+        if (-not (Test-Path $root)) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
+
+        $to = Join-Path $root $Name
+        rsync -a --delete --exclude 'build*/' "$From/" "$to/"
+        if ($LASTEXITCODE -ne 0) {
+                Write-Host "rsync of '$Name' failed -- using it in place instead"
+                return $From
+        }
+        return $to
+}
+
+#   mirrors a project AND the dependency checkouts beside it, so the mirrored tree resolves its
+# siblings within the mirror. Returns the mirrored project path.
+#
+#   `Also` names the sibling directories to bring across. Only those that exist are synced, so a
+# caller can list every dependency any project might want without checking first.
+function Sync-LightWslProject {
+        param(
+                [Parameter(Mandatory)] [string]$From,
+                [string[]]$Also = @('light_framework_mk3', 'light_display', 'font-crusher')
+        )
+
+        $mirrored = Sync-LightWslMirror -From $From
+        if ($mirrored -eq $From) { return $From }   # nothing to mirror, or no rsync
+
+        $parent = Split-Path $From -Parent
+        foreach ($dep in $Also) {
+            $depPath = Join-Path $parent $dep
+            if (Test-Path $depPath) { Sync-LightWslMirror -From $depPath -Name $dep | Out-Null }
+        }
+        return $mirrored
+}
+
 # --- USB serial devices --------------------------------------------------------------------
 
 #   every serial device matching a USB VID/PID, as objects with .Device (what you open) and
@@ -131,8 +223,12 @@ function Find-LightSerialPort {
                         })
         }
 
+        #   NOT $pid: that is a read-only automatic variable holding this process's own ID, and
+        # assigning to it throws -- so this whole function failed on Linux the moment it was
+        # called, taking light-flash.ps1 and light-console.ps1 with it. Never exercised, because
+        # the boards have only ever been flashed from Windows.
         $vid = $VendorId.ToLower().TrimStart('0').PadLeft(4, '0')
-        $pid = $ProductId.ToLower().TrimStart('0').PadLeft(4, '0')
+        $prod = $ProductId.ToLower().TrimStart('0').PadLeft(4, '0')
         $found = @()
         foreach ($tty in @(Get-ChildItem /sys/class/tty -ErrorAction SilentlyContinue |
                         Where-Object { $_.Name -match '^tty(ACM|USB)' })) {
@@ -147,7 +243,7 @@ function Find-LightSerialPort {
                         $pf = Join-Path $node 'idProduct'
                         if ((Test-Path $vf) -and (Test-Path $pf)) {
                                 if (((Get-Content $vf -Raw).Trim() -eq $vid) -and
-                                    ((Get-Content $pf -Raw).Trim() -eq $pid)) {
+                                    ((Get-Content $pf -Raw).Trim() -eq $prod)) {
                                         $nameFile = Join-Path $node 'product'
                                         $desc = if (Test-Path $nameFile) { (Get-Content $nameFile -Raw).Trim() } else { $tty.Name }
                                         $found += [pscustomobject]@{
@@ -211,4 +307,4 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 
 Export-ModuleMember -Function Get-LightPlatform, Get-LightExeSuffix, Get-LightPathSeparator,
         Get-LightToolRoot, Find-LightTool, Test-LightWsl, Get-LightWslPwsh, ConvertTo-LightWslPath,
-        Find-LightSerialPort, Get-LightBootselVolume
+        Sync-LightWslMirror, Sync-LightWslProject, Find-LightSerialPort, Get-LightBootselVolume
