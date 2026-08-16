@@ -59,11 +59,15 @@ if ($useWsl -and -not (Test-LightWsl -Distro $Distro)) {
 
 $srcWsl = ConvertTo-LightWslPath $config.Root
 $lightWsl = ConvertTo-LightWslPath (Join-Path $PSScriptRoot '..')
-#   on Windows the build tree lives on the WSL filesystem, because building onto /mnt/c is
-# dramatically slower. On Linux there is no such crossing, so it goes beside the other build
-# trees where it belongs -- under the project, which is also where `light-clean -All` looks
-$buildWsl = if ($useWsl) { "`$HOME/cov-$($config.Name)" } else { Join-Path $config.Root 'build-coverage/tree' }
-# the HTML goes under the project either way, so it can be opened from the host's browser.
+#   the build tree is NOT passed: the worker puts it under its own $HOME, because that is the
+# only place it can be sure is a native Linux filesystem. Building onto a Windows drive -- /mnt/c
+# under WSL, or a mounted share on a Linux host -- is slower for a job that is almost entirely
+# small-file I/O. Measured on this project, full configure+build+test from clean: 131.7s with the
+# tree on /mnt/c, 103.5s under $HOME.
+#   letting the worker decide also removes the awkward bit that was here before, where this side
+# emitted a literal '$HOME' for the far side to interpolate. Nothing has to quote anything now;
+# the worker just asks for its own home.
+# the HTML goes under the project, so it can be opened from the host's browser.
 # Created here because path resolution needs a real directory and this will not exist first time
 $htmlWin = Join-Path $config.Root 'build-coverage/html'
 $covRoot = Split-Path $htmlWin -Parent
@@ -98,13 +102,10 @@ $ignore = $cov.IgnoreRegex ? $cov.IgnoreRegex : '(/lib/|/usr/|sanitizers/|_deps/
 # PowerShell now, so this is data it can simply evaluate rather than a shell fragment it has to
 # source. Written with LF endings: it is read by pwsh on Linux either way
 $paramsWin = Join-Path $covRoot 'params.ps1'
-#   $HOME must expand on the FAR side (the WSL home, not this one), so it is emitted unexpanded
-# and quoted in a way pwsh over there will interpolate
-$buildExpr = $buildWsl.StartsWith('$HOME') ? "`"$buildWsl`"" : "'$buildWsl'"
 $lines = @(
         '@{',
         "        Source      = '$srcWsl'",
-        "        Build       = $buildExpr",
+        "        ProjectName = '$($config.Name)'",
         "        Html        = '$htmlWsl'",
         "        Objects     = '$($cov.Objects)'",
         "        IgnoreRegex = '$ignore'",
@@ -120,7 +121,6 @@ $paramsWsl = "$(ConvertTo-LightWslPath $covRoot)/params.ps1"
 Write-Host "platform: $(Get-LightPlatform)$(if ($useWsl) { " (worker runs in WSL '$Distro')" })"
 Write-Host "project : $($config.Name)"
 Write-Host "source  : $srcWsl"
-Write-Host "build   : $buildWsl$(if ($useWsl) { ' (WSL filesystem)' })"
 Write-Host ""
 
 if ($useWsl) {

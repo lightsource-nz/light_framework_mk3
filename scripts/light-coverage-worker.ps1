@@ -28,7 +28,6 @@ $p = & $ParamsFile
 if ($p -isnot [hashtable]) { throw "params file '$ParamsFile' must return a hashtable" }
 
 $src       = $p.Source
-$build     = $p.Build
 $html      = $p.Html
 $objglob   = $p.Objects
 $ignore    = $p.IgnoreRegex
@@ -36,6 +35,25 @@ $light     = $p.LightPath
 $functions = $p.Functions
 $reuse     = [bool]$p.Reuse
 $extraArgs = @($p.CMakeArgs)
+
+#   THE BUILD TREE LIVES UNDER $HOME, and the worker decides that rather than the caller, because
+# only this side knows where a native filesystem actually is.
+#
+#   this job is almost entirely small-file I/O -- thousands of object files, then a test binary
+# per case -- which is the worst case for a Windows drive seen through /mnt/c (or for any mounted
+# share on a Linux host).
+#
+#   MEASURED on light_framework_mk3, full configure + build + test from a clean tree:
+# 131.7s with the tree under the project on /mnt/c, 103.5s under $HOME -- about 21% off.
+# Worth having, and less than it sounds like it should be: the SOURCE still lives across the
+# mount and every compile reads it there. Only the writes moved. Do not expect the order of
+# magnitude that moving both would give.
+#
+#   only the HTML report is written back to the project, so it can be opened from the host.
+$work = Join-Path $HOME "cov-$($p.ProjectName)"
+$build = $work
+if (-not (Test-Path $work)) { New-Item -ItemType Directory -Force -Path $work | Out-Null }
+Write-Host "build   : $build"
 
 #   the versioned binaries where they exist, the unversioned ones otherwise. Debian ships
 # llvm-cov-19 with no unsuffixed alias unless llvm-defaults is installed
@@ -67,6 +85,13 @@ if ($reuse -and (Test-Path (Join-Path $build 'cov.profdata'))) {
         Write-Host "== reusing existing profile data =="
         $skipBuild = $true
 }
+
+#   cmake and ctest are invoked FROM the working directory, not merely pointed at it. Anything
+# they create with a relative path -- a stray log, a test's own output file, ctest's temporary
+# state -- then lands on the fast filesystem too, rather than back across the mount because the
+# caller's cwd happened to be on the project side
+Push-Location $work
+try {
 
 if (-not $skipBuild) {
         #   -fprofile-instr-generate/-fcoverage-mapping are clang spellings, so CMAKE_CXX_COMPILER
@@ -114,6 +139,13 @@ if (-not $skipBuild) {
         Invoke-Checked -What 'PROFDATA MERGE' -Body {
                 & $profdata merge -sparse @($raw.FullName) -o (Join-Path $build 'cov.profdata')
         }
+}
+
+} finally {
+        #   restored even on a failure or an `exit` from inside, so this never leaves the caller's
+        # shell sitting in the working directory -- which matters on Linux, where the worker runs
+        # in the SAME process as the launcher rather than in a WSL child
+        Pop-Location
 }
 
 #   every test binary has to be named: llvm-cov reads the coverage map out of the objects, so a
