@@ -54,6 +54,9 @@ on:
       light_display:
         type: boolean
         default: false
+      light_usb:
+        type: boolean
+        default: false
       font_crusher:
         type: boolean
         default: false
@@ -92,6 +95,12 @@ jobs:
         with:
           repository: lightsource-nz/light_display
           path: light_display
+
+      - uses: actions/checkout@v4
+        if: inputs.light_usb
+        with:
+          repository: lightsource-nz/light_usb
+          path: light_usb
 
       - uses: actions/checkout@v4
         if: inputs.font_crusher

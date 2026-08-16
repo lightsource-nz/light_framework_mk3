@@ -39,6 +39,10 @@ on:
         description: 'check out the light_display group beside the project'
         type: boolean
         default: false
+      light_usb:
+        description: 'check out the light_usb group beside the project'
+        type: boolean
+        default: false
       font_crusher:
         description: 'check out font-crusher (needed by anything rend renders text with)'
         type: boolean
@@ -83,6 +87,12 @@ jobs:
         with:
           repository: lightsource-nz/light_display
           path: light_display
+
+      - uses: actions/checkout@v4
+        if: inputs.light_usb
+        with:
+          repository: lightsource-nz/light_usb
+          path: light_usb
 
       #   font-crusher is worth checking out even where it looks optional: rend's Findcrush.cmake
       # FetchContent-fetches a copy from GitHub when it cannot find one locally, so leaving it out
