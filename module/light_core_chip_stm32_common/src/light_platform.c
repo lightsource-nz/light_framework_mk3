@@ -47,18 +47,24 @@ void light_platform_init()
         // problem to manage, because nothing here writes code at runtime.
         //   SCB_EnableICache() invalidates before it enables, so this is also safe on a warm
         // restart where the cache may still hold lines from a previous image.
-        //   THE DATA CACHE IS DELIBERATELY LEFT OFF, and that is not an oversight. It would be
-        // a bigger win again, but .data/.bss live in AXI SRAM precisely so a DMA engine can
-        // reach them (see the memory map at the top of stm32h743xi.ld), and the first DMA-backed
-        // driver would then be handing an engine addresses whose current contents sit in a cache
-        // it knows nothing about. That needs a coherency policy -- clean/invalidate around each
-        // transfer, or an MPU non-cacheable window for DMA buffers -- and it belongs with the
-        // DMA work rather than ahead of it, where it would be a trap waiting for whoever gets
-        // there first.
         //   guarded on the CMSIS feature macro rather than on the chip, so the F4 ports (M4, no
         // cache) skip it and any future M7 port picks it up for free.
 #if defined(__ICACHE_PRESENT) && (__ICACHE_PRESENT == 1U)
         SCB_EnableICache();
+#endif
+
+        //   THE DATA CACHE, and unlike the instruction cache this one is a build-time choice --
+        // it is only safe when nothing both lives in cached memory and gets handed to a DMA
+        // engine. The H743 chip module decides that (LIGHT_H743_DCACHE, alongside
+        // LIGHT_H743_DATA_REGION) and defines the macro; see its CMakeLists for the reasoning and
+        // the measured numbers. Silent by default here, so a port that has not thought about it
+        // does not get it by accident.
+        //   worth knowing while debugging: with this on, values the CPU has written may still be
+        // in the cache, so RAM read over SWD can be stale. Much of this project is diagnosed by
+        // reading structures over the debug probe, which is a real cost of turning it on.
+#if defined(LIGHT_H743_DCACHE) && (LIGHT_H743_DCACHE == 1) \
+                && defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U)
+        SCB_EnableDCache();
 #endif
 
         //   then the clock, because everything below is derived from the result. The H743 boots on HSI at

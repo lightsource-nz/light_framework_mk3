@@ -21,13 +21,28 @@
  *                             in unclocked memory produces an image that faults before main().
  *   SRAM4  0x38000000   64K   D3 domain, stays powered in low-power modes.
  *
- * The choice made here: everything in AXI SRAM, and the stack at the top of DTCM.
+ * The stack is always at the top of DTCM: it is the one allocation that is pure core traffic,
+ * never touched by DMA, and benefits most from zero wait states.
  *
- * AXI rather than DTCM for .data/.bss because a device driver added later will want DMA to
- * reach the framework's buffers, and moving them after the fact means moving them while
- * something depends on where they are. 512K also removes any question of fit.
- * Stack in DTCM because it is the one allocation that is pure core traffic, never touched by
- * DMA, and benefits most from zero wait states.
+ * WHERE .data/.bss/heap GO IS A PER-PROJECT CHOICE, substituted here as
+ * @LIGHT_H743_DATA_REGION@ from the CMake option of the same name. This is a template
+ * (stm32h743xi.ld.in); the linker is handed the generated copy from the build directory.
+ *
+ *   AXI (the default) is DMA-reachable, and 512K removes any question of fit. Any project that
+ *   will hand a DMA engine the address of a global -- a framebuffer, a peripheral buffer --
+ *   needs this, because DTCM is invisible to every DMA engine on the part. It costs speed: AXI
+ *   sits on a 200MHz bus while the core runs at 400MHz, so with the D-cache off every global
+ *   access pays bus latency.
+ *
+ *   DTCM is zero wait state and measurably faster, and needs no cache and no cache-coherency
+ *   policy to be that way. It is correct only for a project that will never DMA to or from a
+ *   global, and it shares 128K with the stack. crossfire's H743 build qualifies: it is headless
+ *   there, its USB host runs the dwc2 in FIFO mode rather than DMA, and its inter-board SPI link
+ *   sends 4-byte packets with blocking writes -- far too small for DMA to pay for itself.
+ *
+ * Getting this wrong is not a build failure. A DMA engine handed a DTCM address simply does not
+ * transfer, or transfers from whatever the bus returns instead, which is the silent-and-correct
+ * -looking failure mode this whole family of choices keeps producing.
  *
  * Flash is 2MB in TWO BANKS of 1MB (0x08000000 and 0x08100000), 8 x 128K sectors each. Only
  * bank 1 is described below: a single image has no reason to straddle the gap, and the second
@@ -151,7 +166,7 @@ SECTIONS
                 *(.data*)
                 . = ALIGN(4);
                 _edata = .;
-        } > AXI AT> FLASH
+        } > @LIGHT_H743_DATA_REGION@ AT> FLASH
 
         . = ALIGN(4);
         .bss :
@@ -164,11 +179,12 @@ SECTIONS
                 . = ALIGN(4);
                 _ebss = .;
                 __bss_end__ = _ebss;
-        } > AXI
+        } > @LIGHT_H743_DATA_REGION@
 
-        /* heap grows from `end` in AXI SRAM. The stack is NOT here -- it is in DTCM, at
-         * _estack -- so this reserves heap only, and the _Min_Stack_Size check below is
-         * against DTCM instead */
+        /* heap grows from `end`, in whichever region carries .data/.bss. When that is AXI the
+         * stack is elsewhere (top of DTCM) and this reserves heap only; when it is DTCM the two
+         * grow towards each other out of the same 128K, which is what the assertion below
+         * checks */
         ._user_heap :
         {
                 . = ALIGN(8);
@@ -176,11 +192,12 @@ SECTIONS
                 PROVIDE(_end = .);
                 . = . + _Min_Heap_Size;
                 . = ALIGN(8);
-        } > AXI
+        } > @LIGHT_H743_DATA_REGION@
 
         /* link-time assertion only: it cannot see runtime stack growth, just a build whose
-         * static allocation has already eaten the budget */
-        ASSERT(_Min_Stack_Size <= LENGTH(DTCM), "stack does not fit in DTCM")
+         * static allocation has already eaten the budget. Which assertion is correct depends on
+         * whether the stack shares its memory with the data sections, so CMake substitutes it */
+        @LIGHT_H743_STACK_ASSERT@
 
         .ARM.attributes 0 : { *(.ARM.attributes) }
 }
