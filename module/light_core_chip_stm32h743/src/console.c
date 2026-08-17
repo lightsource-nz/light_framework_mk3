@@ -65,14 +65,46 @@ void light_core_port_console_init(void)
 // needs a debugger attached and one wire that is already part of the SWD header, while the
 // USART needs no debugger but a wire to something that may not be broken out. Whichever a
 // given board and setup has, the log comes out.
+//   NEITHER BACKEND MAY BLOCK FOREVER, and both could.
+//
+//   CMSIS's ITM_SendChar() spins on `while (ITM->PORT[0].u32 == 0)` -- room in the stimulus
+// FIFO -- with no timeout. That is fine while nothing has enabled ITM, which is the case with no
+// debugger attached. But a debugger enables it, and if nothing is DRAINING the SWO output the
+// FIFO fills and never empties, so the firmware stops dead inside a printf.
+//   observed exactly that: after flashing, OpenOCD had enabled ITM (its own log shows a
+// "timeout waiting for ITM_TCR_BUSY_BIT"), and the board hung in ITM_SendChar partway through
+// its startup log -- before USB was ever initialised. A board that runs standalone but hangs
+// whenever a debugger is attached is a badly misleading failure, since attaching the debugger
+// is exactly what you do to find out why.
+//
+//   the USART wait is the same shape, and though a clocked USART always drains eventually, a
+// misconfigured one does not -- and a console is never worth hanging an application for.
+//   dropping characters is the right failure here. A log line lost is a log line; a run loop
+// that stops is the whole program.
+#define CONSOLE_TX_SPINS        100000u
+
 static void _console_putc(uint8_t c)
 {
-        ITM_SendChar(c);
+        //   the ITM enable checks are ITM_SendChar()'s own, repeated here because we no longer
+        // call it: with nothing attached this is a load, a test and a branch, exactly as before
+        if((ITM->TCR & ITM_TCR_ITMENA_Msk) && (ITM->TER & 1uL)) {
+                uint32_t spins = CONSOLE_TX_SPINS;
+                while(ITM->PORT[0].u32 == 0uL) {
+                        if(!--spins)
+                                break;          // SWO enabled but not drained -- drop it
+                }
+                if(spins)
+                        ITM->PORT[0].u8 = c;
+        }
 
         // TXE_TXFNF, not TXE: with the FIFO present this flag means "transmit FIFO not full"
         // as well as "transmit register empty", and it is the only spelling the H7 headers
         // define
-        while(!(USART1->ISR & USART_ISR_TXE_TXFNF)) { }
+        uint32_t spins = CONSOLE_TX_SPINS;
+        while(!(USART1->ISR & USART_ISR_TXE_TXFNF)) {
+                if(!--spins)
+                        return;
+        }
         USART1->TDR = c;
 }
 

@@ -32,8 +32,22 @@ void SysTick_Handler(void)
         _tick_ms++;
 }
 
+//   the chip's own clock tree, brought up before anything derives a timing from it. Only the
+// H743 port provides one so far; the F4 ports still run on their reset defaults.
+#if defined(STM32H743xx)
+extern void light_chip_clock_init(void);
+#endif
+
 void light_platform_init()
 {
+        //   FIRST, because everything below is derived from the result. The H743 boots on HSI at
+        // 64MHz with no PLL -- correct but slow, and its internal oscillators are nowhere near
+        // accurate enough for USB. This switches to the board's crystal and the PLL, and is
+        // written to fall back to HSI rather than hang if the crystal is absent.
+#if defined(STM32H743xx)
+        light_chip_clock_init();
+#endif
+
         //   SystemCoreClock is maintained by CMSIS's system_stm32*.c, and reflects whatever
         // clock configuration is actually in force -- HSI at 16MHz out of reset, unless a board
         // hook has since reconfigured the PLL and called SystemCoreClockUpdate(). deriving the

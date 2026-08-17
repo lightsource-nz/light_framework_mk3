@@ -29,6 +29,7 @@ target_sources(
         light_core_chip_stm32h743
         INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/src/console.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/clock.c
         ${_cmsis_h7}/Source/Templates/system_stm32h7xx.c
         ${_cmsis_h7}/Source/Templates/gcc/startup_stm32h743xx.s
 )
