@@ -40,7 +40,28 @@ extern void light_chip_clock_init(void);
 
 void light_platform_init()
 {
-        //   FIRST, because everything below is derived from the result. The H743 boots on HSI at
+        //   THE INSTRUCTION CACHE, BEFORE ANYTHING ELSE RUNS. Once clock.c takes the H743 to
+        // 400MHz it executes from flash at two wait states, so every instruction fetch that
+        // misses stalls the core -- and the M7's 16KB I-cache was sitting idle the whole time.
+        // Enabling it is one call and depends on nothing: instruction fetch has no coherency
+        // problem to manage, because nothing here writes code at runtime.
+        //   SCB_EnableICache() invalidates before it enables, so this is also safe on a warm
+        // restart where the cache may still hold lines from a previous image.
+        //   THE DATA CACHE IS DELIBERATELY LEFT OFF, and that is not an oversight. It would be
+        // a bigger win again, but .data/.bss live in AXI SRAM precisely so a DMA engine can
+        // reach them (see the memory map at the top of stm32h743xi.ld), and the first DMA-backed
+        // driver would then be handing an engine addresses whose current contents sit in a cache
+        // it knows nothing about. That needs a coherency policy -- clean/invalidate around each
+        // transfer, or an MPU non-cacheable window for DMA buffers -- and it belongs with the
+        // DMA work rather than ahead of it, where it would be a trap waiting for whoever gets
+        // there first.
+        //   guarded on the CMSIS feature macro rather than on the chip, so the F4 ports (M4, no
+        // cache) skip it and any future M7 port picks it up for free.
+#if defined(__ICACHE_PRESENT) && (__ICACHE_PRESENT == 1U)
+        SCB_EnableICache();
+#endif
+
+        //   then the clock, because everything below is derived from the result. The H743 boots on HSI at
         // 64MHz with no PLL -- correct but slow, and its internal oscillators are nowhere near
         // accurate enough for USB. This switches to the board's crystal and the PLL, and is
         // written to fall back to HSI rather than hang if the crystal is absent.
