@@ -112,3 +112,39 @@ if ($Push) {
 } else {
         Write-Host "created $tag locally. Push it with: git -C $repo push origin $tag"
 }
+
+#   THE MOVING MAJOR TAG, e.g. v1 following the newest v1.y.z.
+#
+#   WHY IT EXISTS: other repositories consume this one by ref -- GitHub Actions resolves
+# `uses: owner/repo/.github/workflows/x.yml@REF`, and REF must be a concrete branch, tag or SHA.
+# There is no "newest tag" ref. That leaves two bad options and one good one:
+#     @main            every push here changes every consumer's CI immediately, with nothing
+#                      released about it and no way to stage a workflow change
+#     @v1.3.0          correct and immutable, but every consumer must be edited on every release
+#     @v1              consumers track the latest release in the major line and are edited only
+#                      when a deliberately breaking v2 arrives
+# The third is the convention the actions ecosystem settled on (actions/checkout@v4), and it is
+# what makes "downstream tracks the latest tagged version" mean anything without hand edits.
+#
+#   -f BECAUSE IT MOVES. This is the one tag here that is expected to be rewritten, which is
+# also why it is worth being explicit that anyone wanting an immutable reference should name the
+# full version instead. A force-push of a tag is normally a mistake; here it is the mechanism.
+#
+#   pre-releases deliberately do not move it: handing every consumer a release candidate is the
+# opposite of what a stable major ref is for.
+if ($PreRelease) {
+        Write-Host "pre-release: leaving the v$maj major tag where it is"
+} else {
+        $majorTag = "v$maj"
+        git -C $repo tag -f -a $majorTag -m "$Message (moving major tag for the v$maj line)"
+        if ($LASTEXITCODE -ne 0) { throw "git tag of $majorTag failed with exit code $LASTEXITCODE" }
+        Write-Host "moved $majorTag to $tag"
+
+        if ($Push) {
+                git -C $repo push -f origin $majorTag
+                if ($LASTEXITCODE -ne 0) { throw "git push of $majorTag failed with exit code $LASTEXITCODE" }
+                Write-Host "pushed $majorTag to origin (force: it moves by design)"
+        } else {
+                Write-Host "moved $majorTag locally. Push it with: git -C $repo push -f origin $majorTag"
+        }
+}
