@@ -216,6 +216,27 @@ void _platform_spi4_port_init(struct io_context *io)
                         io->io.spi.pin_cs, io->io.spi.pin_dc);
 }
 
+//   every wait below is bounded, and that is not defensive padding. An unbounded
+// `while(!(REG & FLAG));` on a peripheral that never raises the flag does not fail, it produces
+// a board that is indistinguishable from a dead one -- no output, no fault, nothing to attach a
+// debugger to except a spin. This codebase has been bitten by exactly that three times over
+// (USB33RDY, ITM, and the console's USART TXE), so a stuck SPI reports and gives up instead.
+//   the count is deliberately generous: at the slowest usable prescaler a byte takes a few
+// thousand core cycles, so this is orders of magnitude past any legitimate wait and will only
+// ever be reached by hardware that is not coming back.
+#define SPI_WAIT_SPINS          1000000u
+
+static bool _spi_wait(volatile uint32_t *reg, uint32_t mask, bool want_set, const uint8_t *what)
+{
+        uint32_t spins = SPI_WAIT_SPINS;
+        while(spins--) {
+                if(((*reg & mask) != 0) == want_set)
+                        return true;
+        }
+        light_error("spi: timed out waiting for %s; transfer abandoned", what);
+        return false;
+}
+
 static void _spi_write_blocking(struct io_context *io, const uint8_t *data, uint32_t len)
 {
         SPI_TypeDef *spi = _spi_of(io->port_id);
@@ -243,22 +264,27 @@ static void _spi_write_blocking(struct io_context *io, const uint8_t *data, uint
 
         // anything that did not fit is fed as the shifter drains it
         while(i < len) {
-                while(!(spi->SR & SPI_SR_TXP)) { }
+                if(!_spi_wait(&spi->SR, SPI_SR_TXP, true, "TXP"))
+                        break;
                 *(volatile uint8_t *)&spi->TXDR = data[i++];
         }
         // EOT rather than "TX empty": the last byte has been handed to the shifter, not sent,
         // and dropping CS before it has clocked out truncates the final byte
-        while(!(spi->SR & SPI_SR_EOT)) { }
+        _spi_wait(&spi->SR, SPI_SR_EOT, true, "EOT");
+        //   the flags are cleared and SPE dropped even when a wait timed out, so a single stuck
+        // transfer does not leave the peripheral mid-transaction and poison every one after it
         spi->IFCR = SPI_IFCR_EOTC | SPI_IFCR_TXTFC;
         spi->CR1 &= ~SPI_CR1_SPE;
 #else
         for(uint32_t i = 0; i < len; i++) {
-                while(!(spi->SR & SPI_SR_TXE)) { }
+                if(!_spi_wait(&spi->SR, SPI_SR_TXE, true, "TXE"))
+                        return;
                 *(volatile uint8_t *)&spi->DR = data[i];
         }
         // wait for the shift register to drain, then for the peripheral to go idle
-        while(!(spi->SR & SPI_SR_TXE)) { }
-        while(spi->SR & SPI_SR_BSY) { }
+        if(!_spi_wait(&spi->SR, SPI_SR_TXE, true, "TXE (drain)"))
+                return;
+        _spi_wait(&spi->SR, SPI_SR_BSY, false, "BSY to clear");
 #endif
 }
 
@@ -378,6 +404,133 @@ bool _platform_spi3_burst_is_complete(struct io_context *io)
         return true;
 }
 
+//   THE BAUD DIVIDER DIVIDES THE SPI KERNEL CLOCK, WHICH IS NOT THE CORE CLOCK. This used to
+// assume SystemCoreClock, with a comment saying that held only "while every prescaler is 1 out
+// of reset" and that a board configuring the PLL must revisit it. light_core_chip_stm32h743 now
+// configures the PLL, so it needed revisiting: SPI4's kernel clock there is APB2 at 100MHz
+// while SystemCoreClock reads 400MHz, so a caller asking for 1MHz quietly got 390kHz. The error
+// runs toward slower, which is why nothing failed and nobody noticed.
+//   these read the RCC rather than trusting whoever set the tree up, so the answer stays right
+// regardless of what configured it, or when.
+#if defined(STM32H743xx)
+//   the oscillator frequencies are NOT exported by the bare-CMSIS device headers -- the device
+// package defines them inside system_stm32h7xx.c, and the copies most code sees come from the
+// HAL's conf header, which a HAL-less build like this one does not have. These are the family
+// defaults, and so are exactly what SystemCoreClockUpdate() assumes when it computes
+// SystemCoreClock; HSE matches the 25MHz crystal that light_core_chip_stm32h743's clock.c is
+// written around. A board with a different crystal must override HSE_VALUE.
+#ifndef HSI_VALUE
+#define HSI_VALUE                       64000000u
+#endif
+#ifndef CSI_VALUE
+#define CSI_VALUE                       4000000u
+#endif
+#ifndef HSE_VALUE
+#define HSE_VALUE                       25000000u
+#endif
+
+//   AHB/APB prescaler encodings: the field's top bit enables division at all, the rest select
+// the power of two. Indexed by the raw field value.
+static const uint8_t _ahb_shift[16] = { 0,0,0,0,0,0,0,0, 1,2,3,4,6,7,8,9 };
+static const uint8_t _apb_shift[8]  = { 0,0,0,0, 1,2,3,4 };
+
+static uint32_t _pll_ref_hz(void)
+{
+        switch(RCC->PLLCKSELR & RCC_PLLCKSELR_PLLSRC) {
+        case 0: return (uint32_t)HSI_VALUE >> ((RCC->CR & RCC_CR_HSIDIV) >> RCC_CR_HSIDIV_Pos);
+        case 1: return (uint32_t)CSI_VALUE;
+        case 2: return (uint32_t)HSE_VALUE;
+        default: return 0;                      // no PLL source selected
+        }
+}
+// N is the field plus one, and so are the P/Q/R post-dividers; DIVM is not
+static uint32_t _pll_out_hz(uint32_t divm, uint32_t n_field, uint32_t x_field)
+{
+        uint32_t ref = _pll_ref_hz();
+        if(!ref || !divm)
+                return 0;
+        return (uint32_t)(((uint64_t)(ref / divm) * (n_field + 1u)) / (x_field + 1u));
+}
+static uint32_t _hclk_hz(void)
+{
+        uint32_t d1cpre = (RCC->D1CFGR & RCC_D1CFGR_D1CPRE) >> RCC_D1CFGR_D1CPRE_Pos;
+        uint32_t hpre   = (RCC->D1CFGR & RCC_D1CFGR_HPRE) >> RCC_D1CFGR_HPRE_Pos;
+        // SystemCoreClock is the CPU clock, which is sys_ck already divided by D1CPRE -- so
+        // undo that before applying HPRE, or every AHB/APB answer is wrong whenever D1CPRE != 1
+        return (SystemCoreClock << _ahb_shift[d1cpre & 0xF]) >> _ahb_shift[hpre & 0xF];
+}
+static uint32_t _per_ck_hz(void)
+{
+        switch((RCC->D1CCIPR & RCC_D1CCIPR_CKPERSEL) >> RCC_D1CCIPR_CKPERSEL_Pos) {
+        case 0: return (uint32_t)HSI_VALUE >> ((RCC->CR & RCC_CR_HSIDIV) >> RCC_CR_HSIDIV_Pos);
+        case 1: return (uint32_t)CSI_VALUE;
+        case 2: return (uint32_t)HSE_VALUE;
+        default: return 0;                      // per_ck disabled
+        }
+}
+#endif
+
+static uint32_t _spi_kernel_hz(uint8_t port_id)
+{
+#if defined(STM32H743xx)
+        uint32_t divm1 = (RCC->PLLCKSELR & RCC_PLLCKSELR_DIVM1) >> RCC_PLLCKSELR_DIVM1_Pos;
+        uint32_t divm2 = (RCC->PLLCKSELR & RCC_PLLCKSELR_DIVM2) >> RCC_PLLCKSELR_DIVM2_Pos;
+        uint32_t divm3 = (RCC->PLLCKSELR & RCC_PLLCKSELR_DIVM3) >> RCC_PLLCKSELR_DIVM3_Pos;
+        uint32_t n1 = (RCC->PLL1DIVR & RCC_PLL1DIVR_N1) >> RCC_PLL1DIVR_N1_Pos;
+        uint32_t n2 = (RCC->PLL2DIVR & RCC_PLL2DIVR_N2) >> RCC_PLL2DIVR_N2_Pos;
+        uint32_t n3 = (RCC->PLL3DIVR & RCC_PLL3DIVR_N3) >> RCC_PLL3DIVR_N3_Pos;
+
+        switch(port_id) {
+        case 1: case 2: case 3:
+                switch((RCC->D2CCIP1R & RCC_D2CCIP1R_SPI123SEL) >> RCC_D2CCIP1R_SPI123SEL_Pos) {
+                case 0: return _pll_out_hz(divm1, n1,
+                                (RCC->PLL1DIVR & RCC_PLL1DIVR_Q1) >> RCC_PLL1DIVR_Q1_Pos);
+                case 1: return _pll_out_hz(divm2, n2,
+                                (RCC->PLL2DIVR & RCC_PLL2DIVR_P2) >> RCC_PLL2DIVR_P2_Pos);
+                case 2: return _pll_out_hz(divm3, n3,
+                                (RCC->PLL3DIVR & RCC_PLL3DIVR_P3) >> RCC_PLL3DIVR_P3_Pos);
+                case 4: return _per_ck_hz();
+                default: return 0;              // I2S_CKIN: an external pin, unknowable here
+                }
+        case 4: case 5:
+                switch((RCC->D2CCIP1R & RCC_D2CCIP1R_SPI45SEL) >> RCC_D2CCIP1R_SPI45SEL_Pos) {
+                case 0: return _hclk_hz() >> _apb_shift[
+                                ((RCC->D2CFGR & RCC_D2CFGR_D2PPRE2) >> RCC_D2CFGR_D2PPRE2_Pos) & 7];
+                case 1: return _pll_out_hz(divm2, n2,
+                                (RCC->PLL2DIVR & RCC_PLL2DIVR_Q2) >> RCC_PLL2DIVR_Q2_Pos);
+                case 2: return _pll_out_hz(divm3, n3,
+                                (RCC->PLL3DIVR & RCC_PLL3DIVR_Q3) >> RCC_PLL3DIVR_Q3_Pos);
+                case 3: return (uint32_t)HSI_VALUE >> ((RCC->CR & RCC_CR_HSIDIV) >> RCC_CR_HSIDIV_Pos);
+                case 4: return (uint32_t)CSI_VALUE;
+                case 5: return (uint32_t)HSE_VALUE;
+                default: return 0;
+                }
+        case 6:
+                switch((RCC->D3CCIPR & RCC_D3CCIPR_SPI6SEL) >> RCC_D3CCIPR_SPI6SEL_Pos) {
+                case 0: return _hclk_hz() >> _apb_shift[
+                                ((RCC->D3CFGR & RCC_D3CFGR_D3PPRE) >> RCC_D3CFGR_D3PPRE_Pos) & 7];
+                case 1: return _pll_out_hz(divm2, n2,
+                                (RCC->PLL2DIVR & RCC_PLL2DIVR_Q2) >> RCC_PLL2DIVR_Q2_Pos);
+                case 2: return _pll_out_hz(divm3, n3,
+                                (RCC->PLL3DIVR & RCC_PLL3DIVR_Q3) >> RCC_PLL3DIVR_Q3_Pos);
+                case 3: return (uint32_t)HSI_VALUE >> ((RCC->CR & RCC_CR_HSIDIV) >> RCC_CR_HSIDIV_Pos);
+                case 4: return (uint32_t)CSI_VALUE;
+                case 5: return (uint32_t)HSE_VALUE;
+                default: return 0;
+                }
+        default: return 0;
+        }
+#else
+        //   F4 and friends: no kernel-clock mux, the SPI runs off its APB bus. SystemCoreClock
+        // is HCLK on these parts, so only the APB prescaler is involved.
+        static const uint8_t apb_shift[8] = { 0,0,0,0, 1,2,3,4 };
+        uint32_t ppre = (port_id == 1)
+                        ? ((RCC->CFGR & RCC_CFGR_PPRE2) >> RCC_CFGR_PPRE2_Pos)
+                        : ((RCC->CFGR & RCC_CFGR_PPRE1) >> RCC_CFGR_PPRE1_Pos);
+        return SystemCoreClock >> apb_shift[ppre & 7];
+#endif
+}
+
 uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
 {
         SPI_TypeDef *spi = _spi_of(io->port_id);
@@ -387,10 +540,15 @@ uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
         //   the divider is a power of two from 2 to 256, so the achievable rate is the first
         // one at or below what was asked for -- never above it, since a display that is
         // overclocked fails intermittently rather than cleanly.
-        //   kernel clock is assumed to be SystemCoreClock, true while every prescaler is 1 out
-        // of reset. A board that configures the PLL must revisit this, exactly as the console's
-        // baud divisor must
-        uint32_t src = SystemCoreClock;
+        uint32_t src = _spi_kernel_hz(io->port_id);
+        if(!src) {
+                //   worth saying out loud rather than silently guessing: a kernel clock of zero
+                // means the selected source is not running, and the peripheral will configure
+                // perfectly and transfer nothing at all
+                light_error("spi port id 0x%x has no kernel clock; leaving the divider alone",
+                                io->port_id);
+                return 0;
+        }
         uint32_t div = 0;
         while(div < 7 && (src >> (div + 1)) > hz)
                 div++;

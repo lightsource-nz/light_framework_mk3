@@ -28,6 +28,24 @@
 #define LIGHT_CONSOLE_BAUD              115200
 #endif
 
+//   rcc_pclk2, derived from the RCC rather than assumed, so it stays correct whatever clock.c
+// (or a board that overrides it) ends up configuring.
+//   the prescaler fields encode "divide at all" in the top bit and the power of two below it,
+// and SystemCoreClock is the CPU clock -- already divided by D1CPRE -- so that has to be undone
+// before HPRE is applied or the answer is wrong for any D1CPRE other than 1.
+static uint32_t _pclk2_hz(void)
+{
+        static const uint8_t ahb_shift[16] = { 0,0,0,0,0,0,0,0, 1,2,3,4,6,7,8,9 };
+        static const uint8_t apb_shift[8]  = { 0,0,0,0, 1,2,3,4 };
+
+        uint32_t d1cpre = (RCC->D1CFGR & RCC_D1CFGR_D1CPRE) >> RCC_D1CFGR_D1CPRE_Pos;
+        uint32_t hpre   = (RCC->D1CFGR & RCC_D1CFGR_HPRE) >> RCC_D1CFGR_HPRE_Pos;
+        uint32_t ppre2  = (RCC->D2CFGR & RCC_D2CFGR_D2PPRE2) >> RCC_D2CFGR_D2PPRE2_Pos;
+
+        uint32_t hclk = (SystemCoreClock << ahb_shift[d1cpre & 0xF]) >> ahb_shift[hpre & 0xF];
+        return hclk >> apb_shift[ppre2 & 7];
+}
+
 void light_core_port_console_init(void)
 {
         // AHB4, not AHB1: on H7 the GPIO ports sit in the D3 domain on AHB4. Enabling the
@@ -43,13 +61,15 @@ void light_core_port_console_init(void)
         GPIOA->AFR[1] |= ((7U << ((9 - 8) * 4)) | (7U << ((10 - 8) * 4)));
         GPIOA->OSPEEDR |= ((2U << (9 * 2)) | (2U << (10 * 2)));
 
-        //   the USART kernel clock, not the CPU clock. They are the same number here only
-        // because every prescaler is 1 out of reset (HSI at 64MHz straight through to pclk2)
-        // and USART16SEL in RCC_D2CCIP2R defaults to rcc_pclk2. Configure the PLL or any
-        // prescaler without revisiting this and the console turns to line noise -- which reads
-        // as a wiring fault rather than as a clock change.
-        //   Rounded rather than truncated, as on the F411 port
-        USART1->BRR = (SystemCoreClock + (LIGHT_CONSOLE_BAUD / 2)) / LIGHT_CONSOLE_BAUD;
+        //   the USART kernel clock, not the CPU clock, and on this board they are no longer the
+        // same number. This used SystemCoreClock, which held only while every prescaler was 1
+        // out of reset -- HSI at 64MHz straight through to pclk2. clock.c now takes the part to
+        // 400MHz with AHB at /2 and APB2 at /2, so pclk2 is 100MHz while SystemCoreClock reads
+        // 400MHz: keeping the old expression would divide by four times too much and put the
+        // console out at 28800, which reads as a wiring fault rather than as a clock change.
+        //   USART16SEL in RCC_D2CCIP2R still selects rcc_pclk2 by default, which is what this
+        // computes; a board that repoints it must revisit this again.
+        USART1->BRR = (_pclk2_hz() + (LIGHT_CONSOLE_BAUD / 2)) / LIGHT_CONSOLE_BAUD;
         USART1->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
 
         setvbuf(stdout, NULL, _IONBF, 0);
