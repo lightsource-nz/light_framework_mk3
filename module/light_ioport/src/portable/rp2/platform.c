@@ -191,8 +191,112 @@ void _platform_spi_slave_port_init(struct io_context *io)
         light_debug("spi slave port id 0x%x opened with baud rate %d", io->port_id, rate);
 }
 
+//   the receive ISR has to get from an interrupt back to an io_context, and the SDK's handler
+// signature carries no argument to pass one in. Two slots, one per hardware SPI, is the whole
+// space that exists -- _spi_select() only ever answers spi0 or spi1.
+static struct io_context *_rx_ctx[2];
+
+static void _spi_slave_rx_isr(uint8_t which)
+{
+        struct io_context *io = _rx_ctx[which];
+        if(!io)
+                return;
+        spi_inst_t *port = _spi_select(io->port_id);
+        if(!port)
+                return;
+
+        //   drain the whole FIFO, not one byte. The interrupt is level-driven off the FIFO
+        // threshold, so returning with data still in it would immediately re-enter -- and at
+        // 7.5MHz that turns into an interrupt storm rather than an error.
+        //   A FIFO OVERRUN IS A LOST BYTE, and on a stream with no framing that is worse than it
+        // sounds: this link reassembles fixed 4-byte packets by counting, so a single dropped
+        // byte slides every packet after it permanently out of alignment. Fold it into the same
+        // report as a ring overflow rather than letting the peripheral's flag sit there unread.
+        if(spi_get_hw(port)->ris & SPI_SSPRIS_RORRIS_BITS) {
+                io->io.spi.rx_overflow = true;
+                spi_get_hw(port)->icr = SPI_SSPICR_RORIC_BITS;
+        }
+
+        while(spi_is_readable(port)) {
+                uint8_t b = (uint8_t) spi_get_hw(port)->dr;
+                uint32_t head = io->io.spi.rx_head;
+                uint32_t next = (head + 1u) & io->io.spi.rx_mask;
+                if(next == io->io.spi.rx_tail) {
+                        //   ring full: the byte is dropped, which is exactly what the FIFO would
+                        // have done, but now it is recorded. Keep draining regardless -- leaving
+                        // bytes in the FIFO would just re-trigger this interrupt forever.
+                        io->io.spi.rx_overflow = true;
+                        continue;
+                }
+                io->io.spi.rx_buf[head] = b;
+                //   the byte lands BEFORE head advances. The reader treats head as "everything
+                // below this is valid", so publishing the index first would expose a slot that
+                // has not been written yet.
+                io->io.spi.rx_head = next;
+        }
+        //   the receive-timeout flag latches when a partial burst sits in the FIFO below the
+        // threshold, and unlike the level-driven RX flag it must be cleared by hand
+        spi_get_hw(port)->icr = SPI_SSPICR_RTIC_BITS;
+}
+static void _spi0_slave_rx_isr(void) { _spi_slave_rx_isr(0); }
+static void _spi1_slave_rx_isr(void) { _spi_slave_rx_isr(1); }
+
+bool _platform_spi_slave_start_rx(struct io_context *io)
+{
+        spi_inst_t *port = _spi_select(io->port_id);
+        if(!port)
+                return false;
+
+        uint8_t which = (port == spi0) ? 0 : 1;
+        _rx_ctx[which] = io;
+
+        //   START FROM A CLEAN FIFO. The peripheral is enabled by port init and the mode is set
+        // after that, both well before this call, so a peer that is already transmitting has had
+        // a window in which to fill the FIFO and overrun it -- observed exactly that way: 105
+        // bytes through the ring, one FIFO overrun, and a packet stream one byte out of phase
+        // ever after. Anything sitting here now predates buffering and cannot be part of a
+        // packet this side will assemble correctly, so it is discarded rather than carried in.
+        while(spi_is_readable(port))
+                (void) spi_get_hw(port)->dr;
+        spi_get_hw(port)->icr = SPI_SSPICR_RORIC_BITS | SPI_SSPICR_RTIC_BITS;
+
+        //   RX and RT together. RX alone fires only once the FIFO reaches its threshold, so a
+        // 4-byte packet arriving into an 8-entry FIFO with a half-full trigger would sit there
+        // until the next packet pushed it over -- adding a packet of latency, or losing the last
+        // one entirely if no more ever came. RT is the timeout that covers exactly that tail.
+        spi_get_hw(port)->imsc = SPI_SSPIMSC_RXIM_BITS | SPI_SSPIMSC_RTIM_BITS;
+
+        uint irq = (which == 0) ? SPI0_IRQ : SPI1_IRQ;
+        irq_set_exclusive_handler(irq, (which == 0) ? _spi0_slave_rx_isr : _spi1_slave_rx_isr);
+        irq_set_enabled(irq, true);
+        light_debug("slave port id 0x%x receiving on irq %d", io->port_id, irq);
+        return true;
+}
+
 uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
 {
+        //   buffered path: everything the ISR has collected since the last call. Nothing here
+        // touches the peripheral, so a caller that polls slowly costs latency rather than data.
+        if(io->io.spi.rx_buf) {
+                if(io->io.spi.rx_overflow) {
+                        io->io.spi.rx_overflow = false;
+                        light_error("slave port id 0x%x receive ring overflowed; bytes were dropped",
+                                        io->port_id);
+                }
+                uint32_t n = 0;
+                //   head is sampled once. Re-reading it in the condition would let the ISR extend
+                // the run mid-loop, which is harmless for correctness but makes the amount
+                // returned depend on interrupt timing rather than on 'max'.
+                uint32_t head = io->io.spi.rx_head;
+                uint32_t tail = io->io.spi.rx_tail;
+                while(n < max && tail != head) {
+                        out[n++] = io->io.spi.rx_buf[tail];
+                        tail = (tail + 1u) & io->io.spi.rx_mask;
+                }
+                io->io.spi.rx_tail = tail;
+                return n;
+        }
+
         spi_inst_t *port;
         if(!(port = _spi_select(io->port_id))) { return 0; }
 

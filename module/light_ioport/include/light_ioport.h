@@ -60,6 +60,18 @@ struct spi_state {
         // SPI clock polarity and phase, 0-3 (see LIGHT_IOPORT_SPI_MODE_*). Defaults to mode 0
         // at setup, which is what every display this has driven expects
         uint8_t mode;
+        //   SLAVE RECEIVE RING, null unless light_ioport_spi_slave_set_rx_buffer() supplied one.
+        // Filled by the peripheral's receive interrupt and drained by read_available(), which
+        // makes it a single-producer/single-consumer queue -- head is written only by the ISR and
+        // tail only by the reader, so neither needs a lock, and both must stay volatile because
+        // each side is modified by something the compiler cannot see from the other.
+        uint8_t *rx_buf;
+        uint32_t rx_mask;                       // rx_buf length - 1; the length is a power of two
+        volatile uint32_t rx_head;              // ISR writes here
+        volatile uint32_t rx_tail;              // reader consumes from here
+        // set by the ISR when a byte arrives with the ring already full, and never cleared by it
+        // -- read_available() reports and clears, so a dropped byte cannot pass unnoticed
+        volatile bool rx_overflow;
 };
 struct io_context {
         uint8_t io_type;
@@ -102,6 +114,23 @@ extern struct io_context *light_ioport_setup_io_pio_spi_4p(
 // an output would fight the master driving the same line.
 extern struct io_context *light_ioport_setup_io_spi_slave(
                         uint8_t port_id, uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi);
+//   BUFFERS THE SLAVE RECEIVE PATH, decoupling it from how often the caller polls.
+//
+//   WHY THIS IS NEEDED AT ALL: without it, read_available() drains the peripheral's own FIFO and
+// nothing else holds incoming bytes. Those FIFOs are tiny -- 8 bytes on an RP2 PL022, 16 on an
+// H7 -- so the time the caller has to come back before data is lost is (FIFO / byte rate). At
+// 7.5MHz that is about 11us on RP2, while a framework run loop polls on a 1ms tick. A slave
+// cannot apply back-pressure, so anything that misses the window is simply gone, and an SPI
+// link with no checksum loses it silently.
+//
+//   'buf' must be a POWER-OF-TWO length, stay valid for the context's lifetime, and live in
+// memory the peripheral's interrupt can touch -- which on an STM32H7 means not DTCM if the
+// implementation is ever moved to DMA. 256 bytes is 23ms of headroom at 7.5MHz, i.e. far more
+// slack than any poll interval this framework schedules.
+//
+//   returns false, and leaves the context reading straight from the FIFO exactly as before, on
+// any platform that has no buffered implementation. Callers that care should check.
+extern bool light_ioport_spi_slave_set_rx_buffer(struct io_context *io, uint8_t *buf, uint32_t len);
 // I/O functions are all blocking, for now
 extern void light_ioport_send_command_byte(struct io_context *io, uint8_t cmd);
 extern void light_ioport_send_data_byte(struct io_context *io, uint8_t data);

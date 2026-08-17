@@ -83,8 +83,44 @@ struct io_context *light_ioport_setup_io_spi_slave(
         io->io.spi.pin_mosi = pin_mosi;
         //   no D/C line -- that is a display convention, not an SPI one
         io->io.spi.pin_dc = LIGHT_IOPORT_PIN_NONE;
+        //   no ring until a caller supplies one. Zeroed explicitly rather than left to whatever
+        // light_alloc() hands back, because the platform read path branches on rx_buf being null
+        // and garbage there would be followed as a pointer.
+        io->io.spi.rx_buf = NULL;
+        io->io.spi.rx_mask = 0;
+        io->io.spi.rx_head = 0;
+        io->io.spi.rx_tail = 0;
+        io->io.spi.rx_overflow = false;
         _platform_spi_slave_port_init(io);
         return io;
+}
+
+bool light_ioport_spi_slave_set_rx_buffer(struct io_context *io, uint8_t *buf, uint32_t len)
+{
+        if(io->io_type != IO_SPI_SLAVE) {
+                light_warn("rx buffering applies to slave contexts only, not type code 0x%x", io->io_type);
+                return false;
+        }
+        //   a power of two is what makes the ring index a mask rather than a modulo, and the ISR
+        // is the hottest path in this module. Checked rather than assumed: a length of, say, 100
+        // would otherwise wrap at 64 and silently discard the rest of the buffer.
+        if(!buf || len < 2 || (len & (len - 1)) != 0) {
+                light_warn("rx buffer length %d is not a power of two >= 2", len);
+                return false;
+        }
+        io->io.spi.rx_buf = buf;
+        io->io.spi.rx_mask = len - 1;
+        io->io.spi.rx_head = 0;
+        io->io.spi.rx_tail = 0;
+        io->io.spi.rx_overflow = false;
+        if(!_platform_spi_slave_start_rx(io)) {
+                // leave the context exactly as it was, so it keeps working off the FIFO
+                io->io.spi.rx_buf = NULL;
+                io->io.spi.rx_mask = 0;
+                return false;
+        }
+        light_debug("slave port id 0x%x buffering receive into %d bytes", io->port_id, len);
+        return true;
 }
 
 uint32_t light_ioport_read_available(struct io_context *io, uint8_t *out, uint32_t max)

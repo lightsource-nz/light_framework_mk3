@@ -19,6 +19,15 @@ void _platform_spi_slave_port_init(struct io_context *io)
         light_debug("spi slave port id 0x%x opened", io->port_id);
 }
 
+bool _platform_spi_slave_start_rx(struct io_context *io)
+{
+        //   there is no peripheral and no interrupt, so there is nothing to buffer. Reporting
+        // false rather than pretending keeps the host build honest about which paths it exercises:
+        // a test that depends on buffering being active would otherwise pass here and fail on
+        // hardware.
+        return false;
+}
+
 uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
 {
         //   nothing is wired to a host build, so nothing ever arrives. Zero is the honest answer

@@ -660,6 +660,19 @@ void _platform_spi_slave_port_init(struct io_context *io)
                         io->port_id, io->io.spi.pin_sck, io->io.spi.pin_mosi, io->io.spi.pin_cs);
 }
 
+//   NOT IMPLEMENTED HERE YET, so the context keeps reading the FIFO directly and the caller is
+// told plainly. The H7's 16-byte FIFO gives twice the slack an RP2 PL022 does, which is why the
+// RP2 side was done first, but the exposure is the same in kind: at 6.25MHz a full FIFO is ~26us
+// against a 1ms poll interval. Mirroring the RP2 implementation means enabling the SPI2 RXP
+// interrupt and draining RXDR into the same ring -- the ring, the overflow reporting and the
+// reader in light_ioport are already platform-independent.
+bool _platform_spi_slave_start_rx(struct io_context *io)
+{
+        light_info("buffered slave receive is not implemented on the STM32 platform yet; "
+                        "port id 0x%x will keep reading its FIFO directly", io->port_id);
+        return false;
+}
+
 uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
 {
         SPI_TypeDef *spi = _spi_of(io->port_id);

@@ -16,6 +16,10 @@ extern void _platform_signal_reset(struct io_context *io);
 extern uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz);
 // applies io->io.spi.mode to the peripheral; valid for master and slave contexts alike
 extern void _platform_spi_set_mode(struct io_context *io);
+//   enables interrupt-driven receive into the ring already installed on the context by
+// light_ioport_spi_slave_set_rx_buffer(). Returns false if the platform has no implementation,
+// in which case the caller reverts the context to reading the FIFO directly.
+extern bool _platform_spi_slave_start_rx(struct io_context *io);
 
 extern void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd);
 extern void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data);
