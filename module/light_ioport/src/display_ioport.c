@@ -127,6 +127,33 @@ uint32_t light_ioport_read_available(struct io_context *io, uint8_t *out, uint32
 {
         switch(io->io_type) {
         case IO_SPI_SLAVE:
+                //   THE BUFFERED PATH LIVES HERE, not in the platform backends, because none of
+                // it is platform-specific: the ring, its indices and its overflow flag are all in
+                // the io_context, and only the interrupt that fills it is per-platform. It was
+                // first written inside the RP2 backend's reader, which meant the STM32 side got
+                // the filling half and kept the polling half -- its ISR emptied the FIFO into the
+                // ring while its reader went on polling a FIFO that was now permanently empty, so
+                // read_available() returned 0 forever and the ring simply filled up and
+                // overflowed. Keeping this above the backends makes that split impossible.
+                if(io->io.spi.rx_buf) {
+                        if(io->io.spi.rx_overflow) {
+                                io->io.spi.rx_overflow = false;
+                                light_error("slave port id 0x%x receive overflow; bytes were dropped",
+                                                io->port_id);
+                        }
+                        uint32_t n = 0;
+                        //   head is sampled once. Re-reading it in the condition would let the ISR
+                        // extend the run mid-loop, making the amount returned depend on interrupt
+                        // timing rather than on 'max'.
+                        uint32_t head = io->io.spi.rx_head;
+                        uint32_t tail = io->io.spi.rx_tail;
+                        while(n < max && tail != head) {
+                                out[n++] = io->io.spi.rx_buf[tail];
+                                tail = (tail + 1u) & io->io.spi.rx_mask;
+                        }
+                        io->io.spi.rx_tail = tail;
+                        return n;
+                }
                 return _platform_spi_slave_read_available(io, out, max);
         default:
                 //   every other type is a master. Returning 0 rather than warning: a caller

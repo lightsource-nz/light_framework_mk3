@@ -660,17 +660,139 @@ void _platform_spi_slave_port_init(struct io_context *io)
                         io->port_id, io->io.spi.pin_sck, io->io.spi.pin_mosi, io->io.spi.pin_cs);
 }
 
-//   NOT IMPLEMENTED HERE YET, so the context keeps reading the FIFO directly and the caller is
-// told plainly. The H7's 16-byte FIFO gives twice the slack an RP2 PL022 does, which is why the
-// RP2 side was done first, but the exposure is the same in kind: at 6.25MHz a full FIFO is ~26us
-// against a 1ms poll interval. Mirroring the RP2 implementation means enabling the SPI2 RXP
-// interrupt and draining RXDR into the same ring -- the ring, the overflow reporting and the
-// reader in light_ioport are already platform-independent.
+//   BUFFERED SLAVE RECEIVE. The ring, its overflow reporting and the reader all live in
+// light_ioport and are platform-independent; all that is needed here is to get bytes out of the
+// peripheral and into the ring as they arrive, rather than whenever the caller next polls.
+//
+//   the interrupt has to find its way back to an io_context and the vector table carries no
+// argument, so this is a lookup indexed by port id. Six slots because _spi_of() answers SPI1
+// through SPI6; a NULL slot means that instance is not a buffered slave and the handler returns.
+static struct io_context *_rx_ctx[6];
+
+static void _spi_slave_rx_isr(uint8_t port_id)
+{
+        if(port_id < 1 || port_id > 6)
+                return;
+        struct io_context *io = _rx_ctx[port_id - 1];
+        if(!io)
+                return;
+        SPI_TypeDef *spi = _spi_of(port_id);
+        if(!spi)
+                return;
+
+#if defined(STM32H743xx)
+        //   an overrun is a LOST BYTE, and on a stream reassembled by counting that misaligns
+        // every packet after it, so it is folded into the same report the ring overflow uses
+        // rather than left in a status bit nobody reads
+        if(spi->SR & SPI_SR_OVR) {
+                io->io.spi.rx_overflow = true;
+                spi->IFCR = SPI_IFCR_OVRC;
+        }
+#else
+        if(spi->SR & SPI_SR_OVR) {
+                io->io.spi.rx_overflow = true;
+                //   the F4 clears OVR by reading DR and then SR, in that order -- there is no
+                // write-one-to-clear register on this generation
+                (void) spi->DR;
+                (void) spi->SR;
+        }
+#endif
+
+        //   drain everything present, not one byte. RXP/RXNE is level-driven, so returning with
+        // data still in the FIFO re-enters immediately, which at these clocks is a storm.
+        for(;;) {
+#if defined(STM32H743xx)
+                if(!(spi->SR & SPI_SR_RXP))
+                        break;
+                //   AN 8-BIT READ. A 32-bit access to RXDR pops a whole word regardless of
+                // DSIZE, silently discarding three bytes in four -- the same trap the polled
+                // read path carries a warning about.
+                uint8_t b = *(volatile uint8_t *) &spi->RXDR;
+#else
+                if(!(spi->SR & SPI_SR_RXNE))
+                        break;
+                uint8_t b = (uint8_t) spi->DR;
+#endif
+                uint32_t head = io->io.spi.rx_head;
+                uint32_t next = (head + 1u) & io->io.spi.rx_mask;
+                if(next == io->io.spi.rx_tail) {
+                        // ring full: record and keep draining, or the interrupt never clears
+                        io->io.spi.rx_overflow = true;
+                        continue;
+                }
+                io->io.spi.rx_buf[head] = b;
+                // the byte lands before head advances, so a slot is never published unwritten
+                io->io.spi.rx_head = next;
+        }
+}
+
+//   these names must match the vector table exactly. They are weak symbols aliased to
+// Default_Handler in the CMSIS startup file, so a strong definition here replaces them at link
+// time -- and getting a name wrong is not an error: the weak stub stays, the interrupt lands in
+// an infinite loop, and receive simply never happens. Same hazard as SysTick_Handler.
+void SPI1_IRQHandler(void) { _spi_slave_rx_isr(1); }
+void SPI2_IRQHandler(void) { _spi_slave_rx_isr(2); }
+void SPI3_IRQHandler(void) { _spi_slave_rx_isr(3); }
+#ifdef SPI4
+void SPI4_IRQHandler(void) { _spi_slave_rx_isr(4); }
+#endif
+#ifdef SPI5
+void SPI5_IRQHandler(void) { _spi_slave_rx_isr(5); }
+#endif
+#ifdef SPI6
+void SPI6_IRQHandler(void) { _spi_slave_rx_isr(6); }
+#endif
+
+static IRQn_Type _spi_irqn(uint8_t port_id)
+{
+        switch(port_id) {
+        case 1: return SPI1_IRQn;
+        case 2: return SPI2_IRQn;
+        case 3: return SPI3_IRQn;
+#ifdef SPI4
+        case 4: return SPI4_IRQn;
+#endif
+#ifdef SPI5
+        case 5: return SPI5_IRQn;
+#endif
+#ifdef SPI6
+        case 6: return SPI6_IRQn;
+#endif
+        default: return NonMaskableInt_IRQn;     // never reached; _spi_of() gates this
+        }
+}
+
 bool _platform_spi_slave_start_rx(struct io_context *io)
 {
-        light_info("buffered slave receive is not implemented on the STM32 platform yet; "
-                        "port id 0x%x will keep reading its FIFO directly", io->port_id);
-        return false;
+        SPI_TypeDef *spi = _spi_of(io->port_id);
+        if(!spi || io->port_id < 1 || io->port_id > 6) {
+                light_warn("no SPI instance for port id %d", io->port_id);
+                return false;
+        }
+        _rx_ctx[io->port_id - 1] = io;
+
+        //   START FROM A CLEAN FIFO, for the same reason the RP2 side does: the peripheral was
+        // enabled by port init and the mode set after it, both before this call, so a peer
+        // already transmitting has had a window to fill and overrun the FIFO. Anything sitting
+        // there now predates buffering and cannot be part of a packet this side will assemble
+        // correctly, so it goes rather than being carried in and shifting the frame.
+#if defined(STM32H743xx)
+        while(spi->SR & SPI_SR_RXP)
+                (void) *(volatile uint8_t *) &spi->RXDR;
+        spi->IFCR = SPI_IFCR_OVRC;
+        //   no equivalent of the PL022's receive-timeout interrupt is needed: RXP asserts at the
+        // FIFO threshold, which init leaves at one data unit, so every single byte raises it and
+        // a short final packet never waits for the next one to push it over.
+        spi->IER |= SPI_IER_RXPIE | SPI_IER_OVRIE;
+#else
+        while(spi->SR & SPI_SR_RXNE)
+                (void) spi->DR;
+        (void) spi->SR;
+        spi->CR2 |= SPI_CR2_RXNEIE | SPI_CR2_ERRIE;
+#endif
+        NVIC_EnableIRQ(_spi_irqn(io->port_id));
+        light_debug("slave port id 0x%x receiving on irq %d", io->port_id, _spi_irqn(io->port_id));
+        return true;
 }
 
 uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)

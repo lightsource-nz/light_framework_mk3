@@ -273,30 +273,10 @@ bool _platform_spi_slave_start_rx(struct io_context *io)
         return true;
 }
 
+//   only ever reached when NO ring is installed -- light_ioport_read_available() serves the
+// buffered case itself, above the backends, so that both platforms cannot drift apart on it
 uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
 {
-        //   buffered path: everything the ISR has collected since the last call. Nothing here
-        // touches the peripheral, so a caller that polls slowly costs latency rather than data.
-        if(io->io.spi.rx_buf) {
-                if(io->io.spi.rx_overflow) {
-                        io->io.spi.rx_overflow = false;
-                        light_error("slave port id 0x%x receive ring overflowed; bytes were dropped",
-                                        io->port_id);
-                }
-                uint32_t n = 0;
-                //   head is sampled once. Re-reading it in the condition would let the ISR extend
-                // the run mid-loop, which is harmless for correctness but makes the amount
-                // returned depend on interrupt timing rather than on 'max'.
-                uint32_t head = io->io.spi.rx_head;
-                uint32_t tail = io->io.spi.rx_tail;
-                while(n < max && tail != head) {
-                        out[n++] = io->io.spi.rx_buf[tail];
-                        tail = (tail + 1u) & io->io.spi.rx_mask;
-                }
-                io->io.spi.rx_tail = tail;
-                return n;
-        }
-
         spi_inst_t *port;
         if(!(port = _spi_select(io->port_id))) { return 0; }
 
