@@ -209,6 +209,11 @@ uint32_t light_ioport_set_spi_clock(struct io_context *io, uint32_t hz)
         case IO_SPI_3P:
         case IO_SPI_4P:
                 return _platform_spi_set_clock(io, hz);
+        case IO_SPI_SLAVE:
+                //   not a failure, so not a warning: a slave is clocked entirely by the far end
+                // and has no baud rate of its own to set. Returning 0 says "no clock is being
+                // driven here", which is the truth
+                return 0;
         default:
                 // PIO-emulated SPI runs off a state machine clock divider set at program
                 // init, not the SPI peripheral, and I2C has no business here at all

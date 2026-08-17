@@ -335,6 +335,78 @@ void _platform_signal_reset(struct io_context *io)
         light_platform_sleep_ms(120);
 }
 
+// --- spi slave --------------------------------------------------------------------------------
+
+//   the receiving role, for a board-to-board link rather than a display. Three differences from
+// every master above, and each is easy to get wrong by copying one:
+//     - NSS/CS is a peripheral INPUT driven by the far end, so it is handed to the alternate
+//       function like SCK and MOSI rather than configured as an output. Driving it here would
+//       fight the master on the same wire.
+//     - hardware slave management (SSM clear) rather than software: the peripheral uses the CS
+//       edge to frame incoming words, which is exactly the per-packet framing a link relies on.
+//     - no baud rate. A slave is clocked entirely by the master; the clock_hz field is left at
+//       whatever the caller set and means nothing here.
+void _platform_spi_slave_port_init(struct io_context *io)
+{
+        SPI_TypeDef *spi = _spi_of(io->port_id);
+        if(!spi) {
+                light_error("no SPI instance for port id %d", io->port_id);
+                return;
+        }
+
+        _spi_clock_enable(io->port_id);
+        _gpio_set_af(io->io.spi.pin_sck, _spi_af(io->port_id));
+        _gpio_set_af(io->io.spi.pin_mosi, _spi_af(io->port_id));
+        _gpio_set_af(io->io.spi.pin_cs, _spi_af(io->port_id));
+
+#if defined(STM32H743xx)
+        //   disable before reconfiguring: CFG1/CFG2 are write-protected while SPE is set, and
+        // the writes are silently dropped rather than refused
+        spi->CR1 = 0;
+        spi->CFG1 = (7U << SPI_CFG1_DSIZE_Pos);         // 8-bit frames
+        //   MASTER clear = slave. SSM clear = hardware NSS, so the master's CS frames the words.
+        // TSIZE stays 0, which on this peripheral means "no limit" -- a slave cannot know how
+        // many bytes the master intends to send.
+        spi->CFG2 = 0;
+        spi->CR1 |= SPI_CR1_SPE;
+#else
+        //   the F4's classic SPI: MSTR clear = slave, SSM clear = hardware NSS. 8-bit is the
+        // reset default (DFF clear), so only the bits that differ are written.
+        spi->CR1 = 0;
+        spi->CR1 |= SPI_CR1_SPE;
+#endif
+        io->io.spi.dma_channel = -1;
+
+        light_debug("spi slave port id 0x%x opened (sck=0x%x mosi=0x%x cs=0x%x)",
+                        io->port_id, io->io.spi.pin_sck, io->io.spi.pin_mosi, io->io.spi.pin_cs);
+}
+
+uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
+{
+        SPI_TypeDef *spi = _spi_of(io->port_id);
+        if(!spi)
+                return 0;
+
+        //   drains only what has already arrived and returns; never waits for a byte. A slave
+        // cannot make its master send, so blocking here would stall a run loop on a peer that
+        // may be saying nothing at all.
+        uint32_t n = 0;
+        while(n < max) {
+#if defined(STM32H743xx)
+                if(!(spi->SR & SPI_SR_RXP))
+                        break;
+                //   an 8-BIT read of RXDR. A 32-bit access pops a whole packet regardless of
+                // DSIZE, so reading the wrong width silently discards three bytes in four.
+                out[n++] = *(volatile uint8_t *) &spi->RXDR;
+#else
+                if(!(spi->SR & SPI_SR_RXNE))
+                        break;
+                out[n++] = (uint8_t) spi->DR;
+#endif
+        }
+        return n;
+}
+
 // --- unimplemented transports ----------------------------------------------------------------
 //   present so that light_ioport links whichever transport a board's code refers to, and loud
 // at runtime rather than silently doing nothing, which is how a display that never lights up
@@ -348,12 +420,6 @@ static void _unsupported(const uint8_t *what)
 void _platform_i2c_port_init(struct io_context *io) { _unsupported("i2c"); }
 void _platform_spi3_port_init(struct io_context *io) { _unsupported("3-wire spi"); }
 void _platform_pio_spi4_port_init(struct io_context *io) { _unsupported("pio spi (an RP2 peripheral)"); }
-//   the receiving role. The STM32 SPI blocks do slave mode perfectly well -- what is missing is
-// the implementation, not the capability, so this is a gap to fill rather than a limitation to
-// document. Until then it is loud: a board-to-board link that silently received nothing would
-// look exactly like a peer that stopped transmitting.
-void _platform_spi_slave_port_init(struct io_context *io) { _unsupported("spi slave"); }
-uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max) { return 0; }
 
 void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd) { }
 void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data) { }
