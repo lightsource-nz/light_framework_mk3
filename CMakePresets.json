@@ -32,6 +32,36 @@
                 "conf-demo-cli-base",
                 "conf-light-release"
             ]
+        },
+        {
+            "name": "conf-demo-blackpill-debug",
+            "description": "WeAct Blackpill (STM32F411CEU6) on bare CMSIS. Own binaryDir, as with screen-test's mini-stm32h7 preset: the arm-none-eabi toolchain is found on PATH by cmake/toolchain/arm_none_eabi.cmake, which light_cmsis_select_toolchain() selects before project(); set LIGHT_TOOLCHAIN_PATH if more than one is installed.",
+            "inherits": [
+                "conf-light-base",
+                "conf-light-debug"
+            ],
+            "binaryDir": "${sourceDir}/build-blackpill",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "LIGHT_SYSTEM": "CMSIS",
+                "LIGHT_PLATFORM": "TARGET",
+                "LIGHT_BOARD": "blackpill"
+            }
+        },
+        {
+            "name": "conf-demo-mini-stm32h7-debug",
+            "description": "WeAct MiniSTM32H7xx (STM32H743VIT6) on bare CMSIS. See conf-demo-blackpill-debug for the toolchain note.",
+            "inherits": [
+                "conf-light-base",
+                "conf-light-debug"
+            ],
+            "binaryDir": "${sourceDir}/build-mini-stm32h7",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "LIGHT_SYSTEM": "CMSIS",
+                "LIGHT_PLATFORM": "TARGET",
+                "LIGHT_BOARD": "mini_stm32h7"
+            }
         }
     ],
     "buildPresets": [
@@ -49,6 +79,16 @@
             "name": "build-demo-cli-release",
             "configurePreset": "conf-demo-cli-release",
             "targets": ["demo_cli"]
+        },
+        {
+            "name": "build-demo-blackpill-debug",
+            "configurePreset": "conf-demo-blackpill-debug",
+            "targets": ["demo_blackpill"]
+        },
+        {
+            "name": "build-demo-mini-stm32h7-debug",
+            "configurePreset": "conf-demo-mini-stm32h7-debug",
+            "targets": ["demo_mini_stm32h7"]
         }
     ]
 }

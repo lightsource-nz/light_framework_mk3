@@ -7,20 +7,26 @@
         Name = 'light_framework_mk3'
 
         Trees = @{
-                'conf-demo-cli-debug'   = 'build'
-                'conf-demo-cli-trace'   = 'build'
-                'conf-demo-cli-release' = 'build'
+                'conf-demo-cli-debug'          = 'build'
+                'conf-demo-cli-trace'          = 'build'
+                'conf-demo-cli-release'        = 'build'
                 # hand-configured, no preset produces it: a PICO_SDK build running in host mode
-                'conf-light-pico-host'  = 'build-pico-hostmode'
+                'conf-light-pico-host'         = 'build-pico-hostmode'
+                'conf-demo-blackpill-debug'    = 'build-blackpill'
+                'conf-demo-mini-stm32h7-debug' = 'build-mini-stm32h7'
         }
 
         Expect = @{
-                'conf-demo-cli-debug'  = @{ LIGHT_PLATFORM = 'HOST'; LIGHT_SYSTEM = 'HOST_OS' }
-                'conf-light-pico-host' = @{ LIGHT_PLATFORM = 'HOST'; LIGHT_SYSTEM = 'PICO_SDK' }
+                'conf-demo-cli-debug'          = @{ LIGHT_PLATFORM = 'HOST'; LIGHT_SYSTEM = 'HOST_OS' }
+                'conf-light-pico-host'         = @{ LIGHT_PLATFORM = 'HOST'; LIGHT_SYSTEM = 'PICO_SDK' }
+                'conf-demo-blackpill-debug'    = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
+                'conf-demo-mini-stm32h7-debug' = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
         }
 
         Targets = @{
-                'demo_cli' = @{ Preset = 'conf-demo-cli-debug' }
+                'demo_cli'          = @{ Preset = 'conf-demo-cli-debug' }
+                'demo_blackpill'    = @{ Preset = 'conf-demo-blackpill-debug' }
+                'demo_mini_stm32h7' = @{ Preset = 'conf-demo-mini-stm32h7-debug' }
         }
 
         DefaultTarget = 'demo_cli'

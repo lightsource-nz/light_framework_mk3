@@ -1,0 +1,109 @@
+# Builds and tests light_framework_mk3 itself on every push and pull request.
+#
+# This project cannot be a CALLER of its own project-build.yml/project-test.yml: both of those
+# reusable workflows unconditionally check out lightsource-nz/light_framework_mk3 to the path
+# 'light_framework_mk3', and a caller named 'light_framework_mk3' would collide with that same
+# path -- the second checkout would silently overwrite the first with framework_ref (default
+# main) instead of the commit actually under test. So the mechanics are duplicated here, kept
+# deliberately small: this project needs no sibling checkouts at all (no light_display,
+# light_usb, font-crusher or pico-sdk dependency), unlike everything that calls it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      #   the same command a developer runs: configures conf-demo-cli-debug if absent, builds
+      # demo_cli, then runs ctest --no-tests=error over the six test/ suites this preset
+      # registers (see project.config.ps1's Test section)
+      - name: test
+        shell: pwsh
+        run: ./scripts/light-test.ps1
+
+  firmware:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # bare CMSIS: no Pico SDK involved, so no toolchain cache key or checkout beyond ARM GCC
+          - name: blackpill (STM32F411, bare CMSIS)
+            preset: conf-demo-blackpill-debug
+            target: demo_blackpill
+            tree: build-blackpill
+          - name: mini_stm32h7 (STM32H743, bare CMSIS)
+            preset: conf-demo-mini-stm32h7-debug
+            target: demo_mini_stm32h7
+            tree: build-mini-stm32h7
+    runs-on: ubuntu-latest
+    env:
+      ARM_TOOLCHAIN_VERSION: 14.2.rel1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: cache arm toolchain
+        id: arm-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/tools/arm-gnu-toolchain
+          key: arm-gnu-toolchain-${{ env.ARM_TOOLCHAIN_VERSION }}-x86_64
+
+      #   unpacked to ~/tools/arm-gnu-toolchain because that is one of the directories
+      # light-env.ps1 searches -- see project-build.yml's identical step for the full rationale
+      - name: install arm toolchain
+        if: steps.arm-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/tools
+          base="arm-gnu-toolchain-${ARM_TOOLCHAIN_VERSION}-x86_64-arm-none-eabi"
+          curl -fsSL --retry 3 \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_TOOLCHAIN_VERSION}/binrel/${base}.tar.xz" \
+            -o /tmp/arm.tar.xz
+          tar -xf /tmp/arm.tar.xz -C ~/tools
+          mv ~/tools/"$base" ~/tools/arm-gnu-toolchain
+
+      - name: build
+        shell: pwsh
+        run: ./scripts/light-build.ps1 -Target "${{ matrix.target }}" -Preset "${{ matrix.preset }}"
+
+      #   .bin/.hex from the light_cmsis_add_extra_outputs() hook, plus the plain ELF (no
+      # extension on Linux, unlike the RP2 boards' .uf2/.elf pair) so a green run keeps the image
+      - name: upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.preset }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.tree }}/test/${{ matrix.target }}/${{ matrix.target }}
+            ${{ matrix.tree }}/test/${{ matrix.target }}/*.bin
+            ${{ matrix.tree }}/test/${{ matrix.target }}/*.hex
