@@ -68,6 +68,38 @@ struct io_context *light_ioport_setup_io_pio_spi_4p(
         return io;
 }
 
+struct io_context *light_ioport_setup_io_spi_slave(
+                        uint8_t port_id, uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi)
+{
+        struct io_context *io = light_alloc(sizeof(*io));
+        io->io_type = IO_SPI_SLAVE;
+        io->port_id = port_id;
+        //   no reset line: the far end is a peer, not a device this one owns. Set explicitly
+        // rather than left alone, so light_ioport_signal_reset() finds the sentinel and skips
+        // instead of decoding whatever happened to be in the allocation.
+        io->pin_reset = LIGHT_IOPORT_PIN_NONE;
+        io->io.spi.pin_sck = pin_sck;
+        io->io.spi.pin_cs = pin_cs;
+        io->io.spi.pin_mosi = pin_mosi;
+        //   no D/C line -- that is a display convention, not an SPI one
+        io->io.spi.pin_dc = LIGHT_IOPORT_PIN_NONE;
+        _platform_spi_slave_port_init(io);
+        return io;
+}
+
+uint32_t light_ioport_read_available(struct io_context *io, uint8_t *out, uint32_t max)
+{
+        switch(io->io_type) {
+        case IO_SPI_SLAVE:
+                return _platform_spi_slave_read_available(io, out, max);
+        default:
+                //   every other type is a master. Returning 0 rather than warning: a caller
+                // polling a master context gets "nothing arrived", which is true, and this is
+                // called from run loops where a per-call log would flood the console
+                return 0;
+        }
+}
+
 void light_ioport_send_command_byte(struct io_context *io, uint8_t cmd)
 {
         // trace, not debug -- fires multiple times per frame on any display driver that

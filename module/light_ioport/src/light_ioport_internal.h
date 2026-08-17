@@ -5,6 +5,11 @@
 extern void _platform_i2c_port_init(struct io_context *io);
 extern void _platform_spi3_port_init(struct io_context *io);
 extern void _platform_spi4_port_init(struct io_context *io);
+//   the receiving role. Only two entry points, because a slave does exactly two things: get
+// configured, and be drained. No send twin -- a peer link that needs to talk back opens its own
+// master context in the other direction, which is what crossfire's link does.
+extern void _platform_spi_slave_port_init(struct io_context *io);
+extern uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max);
 extern void _platform_pio_spi4_port_init(struct io_context *io);
 
 extern void _platform_signal_reset(struct io_context *io);

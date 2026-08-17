@@ -55,6 +55,20 @@ extern uint32_t light_platform_get_absolute_time_ms();
 extern uint32_t light_platform_get_time_since_init();
 extern void light_platform_sleep_ms(uint32_t period);
 
+//   THE SMALLEST GPIO SURFACE THAT IS USEFUL: drive a pin, and say which way it starts. Inputs,
+// pull-ups, interrupts and alternate functions are deliberately absent -- a peripheral that
+// needs those wants light_ioport, which owns pin configuration for a transport. This is for the
+// discrete lines an application owns directly: an activity LED, a chip enable, a mode strap.
+//
+//   PIN NUMBERING IS PLATFORM-SPECIFIC, on the same terms as light_ioport: a flat GPIO number on
+// RP2, and a packed (port, pin) pair on STM32 -- write those with LIGHT_IOPORT_PIN_STM32()
+// rather than as a constant.
+//
+//   configure_output() before write(), always. A pin left in its reset state is an input on
+// every platform here, so writing to one that was never configured silently does nothing.
+extern void light_platform_gpio_configure_output(uint32_t pin, bool initial);
+extern void light_platform_gpio_write(uint32_t pin, bool value);
+
 extern uint8_t *light_platform_getenv(const uint8_t *name);
 extern uint8_t *light_platform_get_user_home();
 extern uint8_t *light_platform_get_user_name();

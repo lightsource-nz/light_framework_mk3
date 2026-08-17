@@ -13,6 +13,20 @@ void _platform_spi3_port_init(struct io_context *io)
 {
         light_debug("spi port id 0x%x opened", io->port_id);
 }
+
+void _platform_spi_slave_port_init(struct io_context *io)
+{
+        light_debug("spi slave port id 0x%x opened", io->port_id);
+}
+
+uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
+{
+        //   nothing is wired to a host build, so nothing ever arrives. Zero is the honest answer
+        // and is also a legitimate one from a real slave, so a caller polling this behaves the
+        // same here as against hardware with an idle peer -- which is what makes the forwarding
+        // logic testable on the host at all.
+        return 0;
+}
 void _platform_spi4_port_init(struct io_context *io)
 {
         light_debug("spi port id 0x%x opened", io->port_id);

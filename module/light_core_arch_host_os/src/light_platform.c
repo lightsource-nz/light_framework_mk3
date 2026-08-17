@@ -240,3 +240,22 @@ uint16_t light_platform_get_user_id()
         return getuid();
 #endif
 }
+
+//   GPIO ON A HOST BUILD: there is no pin, so these record intent and nothing more. Present
+// rather than omitted because host builds exist to exercise the portable logic ABOVE the
+// platform layer -- an application that drives an activity LED should run here unchanged, and
+// linking should not be what stops it.
+//
+//   the state is not modelled and there is no read side, deliberately: a fake that remembered
+// levels would invite tests to assert on them, and asserting that a pin this platform does not
+// have holds a value is a test of the fake rather than of the code under test.
+void light_platform_gpio_configure_output(uint32_t pin, bool initial)
+{
+        light_debug("gpio: pin %u configured as output, initially %s",
+                                        (unsigned) pin, initial ? "high" : "low");
+}
+
+void light_platform_gpio_write(uint32_t pin, bool value)
+{
+        light_trace("gpio: pin %u <- %s", (unsigned) pin, value ? "high" : "low");
+}

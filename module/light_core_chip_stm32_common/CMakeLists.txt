@@ -20,6 +20,7 @@ target_sources(
         ${CMAKE_CURRENT_LIST_DIR}/src/light_object.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_platform.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_platform_pwm.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/light_platform_gpio.c
 )
 
 target_link_libraries(

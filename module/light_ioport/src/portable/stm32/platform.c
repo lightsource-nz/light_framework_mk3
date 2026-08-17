@@ -348,6 +348,12 @@ static void _unsupported(const uint8_t *what)
 void _platform_i2c_port_init(struct io_context *io) { _unsupported("i2c"); }
 void _platform_spi3_port_init(struct io_context *io) { _unsupported("3-wire spi"); }
 void _platform_pio_spi4_port_init(struct io_context *io) { _unsupported("pio spi (an RP2 peripheral)"); }
+//   the receiving role. The STM32 SPI blocks do slave mode perfectly well -- what is missing is
+// the implementation, not the capability, so this is a gap to fill rather than a limitation to
+// document. Until then it is loud: a board-to-board link that silently received nothing would
+// look exactly like a peer that stopped transmitting.
+void _platform_spi_slave_port_init(struct io_context *io) { _unsupported("spi slave"); }
+uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max) { return 0; }
 
 void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd) { }
 void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data) { }

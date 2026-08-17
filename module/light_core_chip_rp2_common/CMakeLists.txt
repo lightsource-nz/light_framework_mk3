@@ -9,6 +9,7 @@ target_sources(
         light_core_chip_rp2_common
         INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/src/light_platform_pwm.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/light_platform_gpio.c
 )
 
 target_link_libraries(

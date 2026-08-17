@@ -141,6 +141,48 @@ void _platform_i2c_port_init(struct io_context *io)
         light_debug("i2c port id 0x%x opened at address 0x%x with baud rate %d", io->port_id, io->io.i2c.addr, rate);
 }
 
+void _platform_spi_slave_port_init(struct io_context *io)
+{
+        spi_inst_t *port;
+        if(!(port = _spi_select(io->port_id))) {
+                light_warn("failed: port id 0x%x is not a valid spi port", io->port_id);
+                return;
+        }
+        //   the peripheral is initialised BEFORE spi_set_slave(): spi_init() resets the block
+        // and leaves it in master mode, so setting the role first would be undone here.
+        uint rate = spi_init(port, SPI_BAUDRATE);
+        spi_set_slave(port, true);
+        io->io.spi.clock_hz = rate;
+
+        //   CS, SCK and MOSI are ALL peripheral inputs in this role -- including CS, which the
+        // master drives. Handing it to GPIO_FUNC_SPI rather than SIO is what lets the hardware
+        // frame incoming words on it; configuring it as an output here, by copying the master
+        // path above, would drive the line against the master.
+        gpio_set_function(io->io.spi.pin_sck, GPIO_FUNC_SPI);
+        gpio_set_function(io->io.spi.pin_mosi, GPIO_FUNC_SPI);
+        gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SPI);
+
+        // nothing async here: reads are drained by polling, so no channel is claimed
+        io->io.spi.dma_channel = -1;
+        light_debug("spi slave port id 0x%x opened with baud rate %d", io->port_id, rate);
+}
+
+uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_t *out, uint32_t max)
+{
+        spi_inst_t *port;
+        if(!(port = _spi_select(io->port_id))) { return 0; }
+
+        //   spi_is_readable() then a raw RX FIFO read, rather than spi_read_blocking(): the
+        // blocking call also CLOCKS bytes out to obtain them, which is a master's behaviour and
+        // is meaningless here -- a slave cannot generate clock. Taking only what the FIFO
+        // already holds is what makes this non-blocking.
+        uint32_t n = 0;
+        while(n < max && spi_is_readable(port)) {
+                out[n++] = (uint8_t) spi_get_hw(port)->dr;
+        }
+        return n;
+}
+
 void _platform_spi3_port_init(struct io_context *io)
 {
         spi_inst_t *port;

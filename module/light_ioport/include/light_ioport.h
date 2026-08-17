@@ -24,6 +24,11 @@
 #define IO_SPI_4P                       1
 #define IO_SPI_3P                       2
 #define IO_PIO_SPI_4P                   3
+//   the one RECEIVING role here. Every other io_type is a master that this device drives; this
+// one is a slave, clocked by whatever is on the other end of the wire, and it is read rather
+// than written. It exists because a board-to-board link is not a display transport -- see
+// light_ioport_setup_io_spi_slave() below.
+#define IO_SPI_SLAVE                    4
 
 // pass as pin_reset to any setup_io_*() call for boards with no hardware RESET line broken
 // out (common on simple I2C breakouts) -- 0xFF is never a valid RP2040 GPIO number, so it's
@@ -85,6 +90,15 @@ extern struct io_context *light_ioport_setup_io_spi_3p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi);
 extern struct io_context *light_ioport_setup_io_pio_spi_4p(
                         uint8_t port_id, uint8_t pin_reset, uint8_t pin_cs, uint8_t pin_dc, uint8_t pin_sck, uint8_t pin_mosi);
+//   SPI as a SLAVE: the peripheral is clocked by the other end and this device only receives.
+// There is no pin_reset, because there is no device to reset -- the far end is a peer, not a
+// panel -- and no pin_dc, which is a display convention rather than an SPI one.
+//
+//   CS IS A PERIPHERAL INPUT here, not an output this code drives. That inversion is the whole
+// difference from the master calls above and is easy to miss when copying one: setting it up as
+// an output would fight the master driving the same line.
+extern struct io_context *light_ioport_setup_io_spi_slave(
+                        uint8_t port_id, uint8_t pin_cs, uint8_t pin_sck, uint8_t pin_mosi);
 // I/O functions are all blocking, for now
 extern void light_ioport_send_command_byte(struct io_context *io, uint8_t cmd);
 extern void light_ioport_send_data_byte(struct io_context *io, uint8_t data);
@@ -119,6 +133,17 @@ extern void light_ioport_send_data_burst_async(struct io_context *io, const uint
 // safe to reuse or free the 'data' buffer passed to the async burst call, or to start another
 // transfer on the same io_context
 extern bool light_ioport_burst_is_complete(struct io_context *io);
+//   drains whatever the peripheral has already received into 'out', up to 'max' bytes, and
+// returns how many were taken. NON-BLOCKING and never waits for a byte to arrive: zero is an
+// ordinary answer meaning nothing has been clocked in since the last call.
+//
+//   partial reads are expected, not exceptional. A slave has no say in when its master clocks
+// bytes, so a caller waiting for an N-byte frame will normally see it arrive across several
+// calls and must accumulate. Draining what is there and returning is what lets that caller stay
+// in a polling loop rather than blocking a scheduler tick on a peer that may say nothing at all.
+//
+//   only IO_SPI_SLAVE implements this; every other io_type is a master and returns 0.
+extern uint32_t light_ioport_read_available(struct io_context *io, uint8_t *out, uint32_t max);
 extern void light_ioport_signal_reset(struct io_context *io);
 // re-clocks the SPI peripheral this context talks through, returning the rate actually
 // achieved (the divider is integer, so it is rarely exactly what was asked for).
