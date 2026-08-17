@@ -47,11 +47,18 @@ if (-not $branchLabel) { $branchLabel = 'nobranch' }
 
 $dirty = [bool](git-in @('status', '--porcelain'))
 
-# --abbrev=0 gives the bare tag name; the full describe gives us the commit distance
-$lastTag = (git-in @('describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*'))
+#   --abbrev=0 gives the bare tag name; the full describe gives us the commit distance.
+#   THE GLOB MUST REQUIRE ALL THREE COMPONENTS. 'v[0-9]*' also matches the moving major tag that
+# light-release.ps1 maintains for workflow consumers (v1, following the newest v1.y.z), and
+# git describe picks by commit distance rather than by name -- so with both v1 and v1.3.0 on the
+# same commit it will happily answer 'v1', which is not a semantic version. This threw, CMake
+# swallowed the failure through its fallback, and every project's baked-in version silently
+# became 0.0.0-unknown. Requiring two literal dots excludes the major tag by construction.
+$tagGlob = 'v[0-9]*.[0-9]*.[0-9]*'
+$lastTag = (git-in @('describe', '--tags', '--abbrev=0', '--match', $tagGlob))
 
 if ($lastTag) {
-        $describe = (git-in @('describe', '--tags', '--long', '--match', 'v[0-9]*'))
+        $describe = (git-in @('describe', '--tags', '--long', '--match', $tagGlob))
         # v1.2.3-5-gabc1234 -> tag v1.2.3, 5 commits ahead
         if ($describe -notmatch '^(?<tag>.+)-(?<count>\d+)-g[0-9a-f]+$') {
                 throw "could not parse 'git describe' output: '$describe'"

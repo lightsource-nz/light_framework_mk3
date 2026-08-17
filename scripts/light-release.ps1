@@ -41,7 +41,9 @@ if (-not (git-in @('rev-parse', '--git-dir'))) { throw "'$repo' is not a git rep
 # MAJOR.MINOR.PATCH to bump. An unreleased repository starts at 0.1.0 rather than 0.0.0, since a
 # tag that means "nothing has been released" is not worth minting.
 if (-not $Version) {
-        $latest = git-in @('tag', '--list', 'v[0-9]*', '--sort=-v:refname') | Select-Object -First 1
+        #   all three components required, so the moving major tag written at the end of this
+        # script (v1, v2...) is never mistaken for the release it points at
+        $latest = git-in @('tag', '--list', 'v[0-9]*.[0-9]*.[0-9]*', '--sort=-v:refname') | Select-Object -First 1
         if ($latest -and ($latest -replace '^v', '') -match '^(?<maj>\d+)\.(?<min>\d+)\.(?<pat>\d+)') {
                 $lmaj = [int]$Matches['maj']; $lmin = [int]$Matches['min']; $lpat = [int]$Matches['pat']
                 switch ($Bump) {
@@ -81,7 +83,7 @@ if (git-in @('rev-parse', '-q', '--verify', "refs/tags/$tag")) {
 #   ordering check against the newest release tag. Pre-releases are excluded from the
 # comparison base: v1.3.0-rc.1 does not stop v1.3.0 being released, and comparing against it
 # would wrongly reject exactly that.
-$previous = git-in @('tag', '--list', 'v[0-9]*', '--sort=-v:refname') | Where-Object { $_ -notmatch '-' } | Select-Object -First 1
+$previous = git-in @('tag', '--list', 'v[0-9]*.[0-9]*.[0-9]*', '--sort=-v:refname') | Where-Object { $_ -notmatch '-' } | Select-Object -First 1
 if ($previous) {
         $prev = $previous -replace '^v', ''
         if ($prev -match '^(?<maj>\d+)\.(?<min>\d+)\.(?<pat>\d+)$') {
