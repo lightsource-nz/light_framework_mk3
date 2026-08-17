@@ -37,6 +37,13 @@
 #define PLL1_DIVM               5u
 #define PLL1_DIVN               160u
 #define PLL1_DIVP               2u
+//   pll1_q_ck, and it is NOT optional. RCC_D2CCIP1R.SPI123SEL resets to 0, which selects
+// pll1_q_ck as the kernel clock for SPI1/2/3 -- so with PLL1's Q output disabled, that entire
+// peripheral group has no kernel clock. The failure mode is nasty: every register still reads
+// and writes correctly over APB, so the peripheral configures perfectly and simply never
+// transfers a bit. It cost an evening on an SPI2 slave that looked right in every register.
+//     q = 800MHz / DIVQ1(8) = 100MHz, well under the 200MHz kernel ceiling at VOS1
+#define PLL1_DIVQ               8u
 
 //   PLL3 -> exactly 48MHz for USB.
 //     ref  = 25MHz / DIVM3(5)  = 5MHz
@@ -66,6 +73,17 @@ static bool _wait(volatile uint32_t *reg, uint32_t mask, uint32_t spins)
         return false;
 }
 
+//   every early return below leaves PLL1 stopped, and SPI1/2/3 take their kernel clock from
+// pll1_q_ck by reset default (see PLL1_DIVQ) -- so the fallback that exists to keep a
+// crystal-less board working would hand back a board whose entire SPI group is dead. per_ck
+// defaults to hsi_ker_ck, which is running whenever the core is, so it is always a valid
+// answer; it is slower than pll1_q_ck, which is the point of a fallback.
+static void _spi123_kernel_clock_fallback(void)
+{
+        RCC->D2CCIP1R = (RCC->D2CCIP1R & ~RCC_D2CCIP1R_SPI123SEL_Msk)
+                        | (4u << RCC_D2CCIP1R_SPI123SEL_Pos);
+}
+
 void light_chip_clock_init(void)
 {
         //   1. VOLTAGE SCALING FIRST. The core cannot run at 400MHz on the reset-default VOS3;
@@ -75,6 +93,7 @@ void light_chip_clock_init(void)
         PWR->D3CR |= (3u << PWR_D3CR_VOS_Pos);          // 0b11 = Scale 1
         if(!_wait(&PWR->D3CR, PWR_D3CR_VOSRDY, CLOCK_WAIT_SPINS)) {
                 light_error("clock: VOS1 not ready; staying on HSI at 64MHz");
+                _spi123_kernel_clock_fallback();
                 return;
         }
 
@@ -85,6 +104,7 @@ void light_chip_clock_init(void)
                 //   the interesting failure, and the reason every wait here is bounded: a board
                 // with no crystal fitted still boots and still works, just on HSI as before
                 light_warn("clock: HSE did not start; staying on HSI at 64MHz (USB will be out of spec)");
+                _spi123_kernel_clock_fallback();
                 return;
         }
 
@@ -94,21 +114,28 @@ void light_chip_clock_init(void)
                         | (PLL1_DIVM << RCC_PLLCKSELR_DIVM1_Pos)
                         | (PLL3_DIVM << RCC_PLLCKSELR_DIVM3_Pos);
 
+        //   these divider fields are only writable while the PLL is off, which is where we are
+        // -- PLL1ON is not set until below. Trying to retune Q1 on a locked PLL silently does
+        // nothing, the write simply does not land.
         RCC->PLL1DIVR = PLL_DIVN_FIELD(PLL1_DIVN)
-                        | (PLL_DIVP_FIELD(PLL1_DIVP) << RCC_PLL1DIVR_P1_Pos);
+                        | (PLL_DIVP_FIELD(PLL1_DIVP) << RCC_PLL1DIVR_P1_Pos)
+                        | (PLL_DIVQ_FIELD(PLL1_DIVQ) << RCC_PLL1DIVR_Q1_Pos);
         RCC->PLL3DIVR = PLL_DIVN_FIELD(PLL3_DIVN)
                         | (PLL_DIVQ_FIELD(PLL3_DIVQ) << RCC_PLL3DIVR_Q3_Pos);
 
-        //   input range 4-8MHz and the wide VCO band for both, then enable only the outputs
-        // actually consumed: PLL1's P (system clock) and PLL3's Q (USB).
+        //   input range 4-8MHz and the wide VCO band for both, then enable the outputs actually
+        // consumed: PLL1's P (system clock), PLL1's Q (kernel clock for SPI1/2/3 and friends --
+        // see PLL1_DIVQ) and PLL3's Q (USB).
         RCC->PLLCFGR = (2u << RCC_PLLCFGR_PLL1RGE_Pos)
                         | (2u << RCC_PLLCFGR_PLL3RGE_Pos)
                         | RCC_PLLCFGR_DIVP1EN
+                        | RCC_PLLCFGR_DIVQ1EN
                         | RCC_PLLCFGR_DIVQ3EN;
 
         RCC->CR |= RCC_CR_PLL1ON;
         if(!_wait(&RCC->CR, RCC_CR_PLL1RDY, CLOCK_WAIT_SPINS)) {
                 light_error("clock: PLL1 did not lock; staying on HSI at 64MHz");
+                _spi123_kernel_clock_fallback();
                 return;
         }
 

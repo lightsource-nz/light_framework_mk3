@@ -57,6 +57,9 @@ struct spi_state {
         // platform's own baud rate at setup, so a caller that never touches it sees no
         // change (see light_ioport_set_spi_clock())
         uint32_t clock_hz;
+        // SPI clock polarity and phase, 0-3 (see LIGHT_IOPORT_SPI_MODE_*). Defaults to mode 0
+        // at setup, which is what every display this has driven expects
+        uint8_t mode;
 };
 struct io_context {
         uint8_t io_type;
@@ -158,5 +161,21 @@ extern void light_ioport_signal_reset(struct io_context *io);
 // rather than a clean failure, so step it up and look at the glass. no-op on a non-SPI
 // context
 extern uint32_t light_ioport_set_spi_clock(struct io_context *io, uint32_t hz);
+
+//   SPI mode: the (CPOL, CPHA) pair, named the conventional way. Mode 0 is the default and is
+// what displays expect, so nothing that predates this call needs to change.
+//
+//   MODE 1 IS NOT AN AESTHETIC CHOICE FOR A BOARD-TO-BOARD LINK. With CPHA=0 an RP2 SPI slave
+// (an ARM PL022) takes the CS falling edge as the start of a frame, so a master that holds CS
+// low across a multi-byte burst gets its first byte through and zeros after it -- the byte
+// count and the clock both look perfectly correct, which is what makes it hard to see. CPHA=1
+// is the documented way to run back-to-back frames under one CS assertion. Both ends of a link
+// must agree, and unlike the clock, a slave DOES need this set: phase is not something the
+// master can impose on it.
+#define LIGHT_IOPORT_SPI_MODE_0         0       // CPOL=0 CPHA=0
+#define LIGHT_IOPORT_SPI_MODE_1         1       // CPOL=0 CPHA=1
+#define LIGHT_IOPORT_SPI_MODE_2         2       // CPOL=1 CPHA=0
+#define LIGHT_IOPORT_SPI_MODE_3         3       // CPOL=1 CPHA=1
+extern void light_ioport_set_spi_mode(struct io_context *io, uint8_t mode);
 
 #endif

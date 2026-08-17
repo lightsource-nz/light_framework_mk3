@@ -221,6 +221,29 @@ uint32_t light_ioport_set_spi_clock(struct io_context *io, uint32_t hz)
                 return 0;
         }
 }
+void light_ioport_set_spi_mode(struct io_context *io, uint8_t mode)
+{
+        if(mode > LIGHT_IOPORT_SPI_MODE_3) {
+                light_warn("invalid spi mode %d, ignoring", mode);
+                return;
+        }
+        switch(io->io_type) {
+        case IO_SPI_3P:
+        case IO_SPI_4P:
+        //   UNLIKE THE CLOCK, a slave is included here. A slave takes its clock from the far end
+        // and so has no baud rate of its own, but it very much has a phase: CPHA decides which
+        // clock edge it samples on, and getting it wrong is a receiver that returns nothing
+        // useful while every other register reads correct.
+        case IO_SPI_SLAVE:
+                io->io.spi.mode = mode;
+                _platform_spi_set_mode(io);
+                break;
+        default:
+                // PIO-emulated SPI bakes its phase into the state machine program, and I2C has
+                // no polarity or phase at all
+                light_warn("spi mode not settable for I/O context type code: 0x%x", io->io_type);
+        }
+}
 bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len)
 {
         light_trace("read register: 0x%x, %d bytes", reg, len);

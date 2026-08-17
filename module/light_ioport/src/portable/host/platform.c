@@ -48,6 +48,12 @@ uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
         light_debug("spi port id 0x%x clock set to %d Hz (host: no-op)", io->port_id, hz);
         return hz;
 }
+void _platform_spi_set_mode(struct io_context *io)
+{
+        // no peripheral to configure; the mode is already recorded on the context by the
+        // caller, so nothing here needs to remember it
+        light_debug("spi port id 0x%x set to mode %d (host: no-op)", io->port_id, io->io.spi.mode);
+}
 
 void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd)
 {

@@ -230,11 +230,21 @@ static void _spi_write_blocking(struct io_context *io, const uint8_t *data, uint
         spi->CR1 &= ~SPI_CR1_SPE;
         spi->CR2 = len;
         spi->CR1 |= SPI_CR1_SPE;
+
+        //   PRIME THE FIFO BEFORE CSTART, not after. CSTART begins clocking immediately, so
+        // setting it first opens a window where the master is driving SCK with nothing to
+        // shift out -- the transfer starts underrun. Filling first closes the window entirely
+        // for any burst that fits in the FIFO, which every packet on the inter-board link does.
+        uint32_t i = 0;
+        while(i < len && (spi->SR & SPI_SR_TXP))
+                *(volatile uint8_t *)&spi->TXDR = data[i++];
+
         spi->CR1 |= SPI_CR1_CSTART;
 
-        for(uint32_t i = 0; i < len; i++) {
+        // anything that did not fit is fed as the shifter drains it
+        while(i < len) {
                 while(!(spi->SR & SPI_SR_TXP)) { }
-                *(volatile uint8_t *)&spi->TXDR = data[i];
+                *(volatile uint8_t *)&spi->TXDR = data[i++];
         }
         // EOT rather than "TX empty": the last byte has been handed to the shifter, not sent,
         // and dropping CS before it has clocked out truncates the final byte
@@ -290,6 +300,84 @@ bool _platform_spi4_burst_is_complete(struct io_context *io)
         return true;
 }
 
+//   THE 3-PIN MASTER. This was `_unsupported("3-wire spi")` plus four empty send functions, so
+// a board-to-board SPI link on this platform brought up nothing and transmitted nothing, while
+// every caller looked correct -- the exact mirror of the same hole on the RP2 side. crossfire's
+// H7 -> Pico link direction was dead for precisely this reason.
+//   the only difference from the SPI4 entry points above is that there is no D/C pin: a 3-pin
+// port is SCK, MOSI and CS. As on RP2, a "command" byte is indistinguishable from a data byte
+// here, since D/C is what carried that distinction; a 3-wire display encoding D/C as a 9th bit
+// is a different protocol and would need its own io_type.
+void _platform_spi3_port_init(struct io_context *io)
+{
+        SPI_TypeDef *spi = _spi_of(io->port_id);
+        if(!spi) {
+                light_error("no SPI instance for port id %d", io->port_id);
+                return;
+        }
+
+        _spi_clock_enable(io->port_id);
+        _gpio_set_af(io->io.spi.pin_sck, _spi_af(io->port_id));
+        _gpio_set_af(io->io.spi.pin_mosi, _spi_af(io->port_id));
+        //   CS driven by software, and driven HIGH before anything else uses the port: a slave
+        // peer with hardware NSS takes the falling edge as the start of a transaction, so a CS
+        // left asserted from init means the first transfer of the port's life is never framed
+        _gpio_set_output(io->io.spi.pin_cs);
+        _gpio_write(io->io.spi.pin_cs, true);
+        if(io->pin_reset != PIN_NONE) {
+                _gpio_set_output(io->pin_reset);
+                _gpio_write(io->pin_reset, true);
+        }
+
+#if defined(STM32H743xx)
+        // see _platform_spi4_port_init() -- the H7 generation needs TSIZE per transfer and
+        // SPE cleared while CFG1/CFG2 are written
+        spi->CR1 = 0;
+        spi->CFG1 = (7U << SPI_CFG1_DSIZE_Pos);
+        spi->CFG2 = SPI_CFG2_MASTER | SPI_CFG2_SSM | SPI_CFG2_SSOE | SPI_CFG2_AFCNTR;
+        spi->CR1 |= SPI_CR1_SSI;
+        spi->CR1 |= SPI_CR1_SPE;
+#else
+        spi->CR1 = SPI_CR1_MSTR | SPI_CR1_SSI | SPI_CR1_SSM;
+        spi->CR1 |= SPI_CR1_SPE;
+#endif
+        io->io.spi.dma_channel = -1;
+
+        light_debug("3-pin spi port id 0x%x opened (sck=0x%x mosi=0x%x cs=0x%x)",
+                        io->port_id, io->io.spi.pin_sck, io->io.spi.pin_mosi, io->io.spi.pin_cs);
+}
+void _platform_spi3_send_command_byte(struct io_context *io, uint8_t cmd)
+{
+        _gpio_write(io->io.spi.pin_cs, false);
+        _spi_write_blocking(io, &cmd, 1);
+        _gpio_write(io->io.spi.pin_cs, true);
+}
+void _platform_spi3_send_data_byte(struct io_context *io, uint8_t data)
+{
+        _gpio_write(io->io.spi.pin_cs, false);
+        _spi_write_blocking(io, &data, 1);
+        _gpio_write(io->io.spi.pin_cs, true);
+}
+//   one CS assertion around the whole burst, which is what delimits a packet for the peer.
+//   THIS REQUIRES THE LINK TO RUN IN MODE 1 when the far end is an RP2 slave: with CPHA=0 a
+// PL022 slave takes the CS falling edge as the start of a frame, so a burst-long assertion
+// gets the first byte through and zeros after it. See light_ioport_set_spi_mode().
+void _platform_spi3_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        _gpio_write(io->io.spi.pin_cs, false);
+        _spi_write_blocking(io, data, len);
+        _gpio_write(io->io.spi.pin_cs, true);
+}
+// no DMA here either -- see _platform_spi4_send_data_burst_async() for why that is honest
+void _platform_spi3_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
+{
+        _platform_spi3_send_data_burst(io, data, len);
+}
+bool _platform_spi3_burst_is_complete(struct io_context *io)
+{
+        return true;
+}
+
 uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
 {
         SPI_TypeDef *spi = _spi_of(io->port_id);
@@ -319,6 +407,39 @@ uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
         light_debug("spi port id 0x%x re-clocked: requested %d Hz, running at %d Hz",
                         io->port_id, hz, io->io.spi.clock_hz);
         return io->io.spi.clock_hz;
+}
+
+void _platform_spi_set_mode(struct io_context *io)
+{
+        SPI_TypeDef *spi = _spi_of(io->port_id);
+        if(!spi)
+                return;
+
+        uint32_t cpol = (io->io.spi.mode >> 1) & 1;
+        uint32_t cpha = io->io.spi.mode & 1;
+
+        //   SPE must be clear to change these on either generation, and on the H7 the whole of
+        // CFG2 is write-protected while the peripheral is enabled. Whether SPE goes back on
+        // depends on the role: a master re-enables it per transfer in _spi_write_blocking(),
+        // but a slave has nothing that would ever switch it on again, so leaving it off there
+        // would quietly disable the receiver.
+        bool was_enabled = (spi->CR1 & SPI_CR1_SPE) != 0;
+        spi->CR1 &= ~SPI_CR1_SPE;
+
+#if defined(STM32H743xx)
+        spi->CFG2 = (spi->CFG2 & ~(SPI_CFG2_CPOL | SPI_CFG2_CPHA))
+                        | (cpol ? SPI_CFG2_CPOL : 0U)
+                        | (cpha ? SPI_CFG2_CPHA : 0U);
+#else
+        spi->CR1 = (spi->CR1 & ~(SPI_CR1_CPOL | SPI_CR1_CPHA))
+                        | (cpol ? SPI_CR1_CPOL : 0U)
+                        | (cpha ? SPI_CR1_CPHA : 0U);
+#endif
+        if(was_enabled)
+                spi->CR1 |= SPI_CR1_SPE;
+
+        light_debug("spi port id 0x%x set to mode %d (cpol=%d cpha=%d)",
+                        io->port_id, io->io.spi.mode, cpol, cpha);
 }
 
 void _platform_signal_reset(struct io_context *io)
@@ -418,7 +539,6 @@ static void _unsupported(const uint8_t *what)
 }
 
 void _platform_i2c_port_init(struct io_context *io) { _unsupported("i2c"); }
-void _platform_spi3_port_init(struct io_context *io) { _unsupported("3-wire spi"); }
 void _platform_pio_spi4_port_init(struct io_context *io) { _unsupported("pio spi (an RP2 peripheral)"); }
 
 void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd) { }
@@ -428,12 +548,6 @@ bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *ou
 bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint8_t *data, uint32_t len) { return false; }
 void _platform_i2c_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len) { }
 bool _platform_i2c_burst_is_complete(struct io_context *io) { return true; }
-
-void _platform_spi3_send_command_byte(struct io_context *io, uint8_t cmd) { }
-void _platform_spi3_send_data_byte(struct io_context *io, uint8_t data) { }
-void _platform_spi3_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len) { }
-void _platform_spi3_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len) { }
-bool _platform_spi3_burst_is_complete(struct io_context *io) { return true; }
 
 void _platform_pio_spi4_send_command_byte(struct io_context *io, uint8_t cmd) { }
 void _platform_pio_spi4_send_data_byte(struct io_context *io, uint8_t data) { }

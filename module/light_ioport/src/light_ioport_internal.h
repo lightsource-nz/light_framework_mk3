@@ -14,6 +14,8 @@ extern void _platform_pio_spi4_port_init(struct io_context *io);
 
 extern void _platform_signal_reset(struct io_context *io);
 extern uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz);
+// applies io->io.spi.mode to the peripheral; valid for master and slave contexts alike
+extern void _platform_spi_set_mode(struct io_context *io);
 
 extern void _platform_i2c_send_command_byte(struct io_context *io, uint8_t cmd);
 extern void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data);

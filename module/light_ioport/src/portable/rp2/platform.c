@@ -116,6 +116,22 @@ uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
         return rate;
 }
 
+void _platform_spi_set_mode(struct io_context *io)
+{
+        spi_inst_t *port = _spi_select(io->port_id);
+        if(!port) {
+                light_warn("failed: port id 0x%x is not a valid spi port", io->port_id);
+                return;
+        }
+        //   spi_set_format() carries the data width and bit order too, so both are restated
+        // here rather than left to whatever spi_init() chose -- 8-bit MSB-first is what every
+        // caller of this module uses, and re-asserting it keeps mode changes from silently
+        // depending on init order.
+        spi_set_format(port, 8, (spi_cpol_t)((io->io.spi.mode >> 1) & 1),
+                        (spi_cpha_t)(io->io.spi.mode & 1), SPI_MSB_FIRST);
+        light_debug("spi port id 0x%x set to mode %d", io->port_id, io->io.spi.mode);
+}
+
 void _platform_i2c_port_init(struct io_context *io)
 {
         i2c_inst_t *port;
@@ -154,10 +170,18 @@ void _platform_spi_slave_port_init(struct io_context *io)
         spi_set_slave(port, true);
         io->io.spi.clock_hz = rate;
 
-        //   CS, SCK and MOSI are ALL peripheral inputs in this role -- including CS, which the
-        // master drives. Handing it to GPIO_FUNC_SPI rather than SIO is what lets the hardware
+        //   CS, SCK and the data pin are ALL peripheral inputs in this role -- including CS, which
+        // the master drives. Handing it to GPIO_FUNC_SPI rather than SIO is what lets the hardware
         // frame incoming words on it; configuring it as an output here, by copying the master
         // path above, would drive the line against the master.
+        //
+        //   pin_mosi MUST BE THE PERIPHERAL'S *RX* PIN HERE, not the pin a schematic would label
+        // MOSI. The RP2 SPI block has RX and TX pins whose meaning follows the role rather than
+        // the name: a master sends on TX, a slave receives on RX. Naming spi1's TX pin (GP15)
+        // here does not fail loudly -- it muxes an OUTPUT onto the wire, so this board drives
+        // against the peer's data line while the receiver listens on an unconnected RX pin and
+        // clocks in a perfectly framed stream of 0x00. There is no field named pin_rx because
+        // every other io_type here is a master, where pin_mosi is exactly right.
         gpio_set_function(io->io.spi.pin_sck, GPIO_FUNC_SPI);
         gpio_set_function(io->io.spi.pin_mosi, GPIO_FUNC_SPI);
         gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SPI);
@@ -197,6 +221,14 @@ void _platform_spi3_port_init(struct io_context *io)
                 gpio_set_dir(io->pin_reset, true);
         }
         gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SIO);
+        //   CS HIGH BEFORE IT BECOMES AN OUTPUT. the RP2 output register resets to 0, so
+        // set_dir() alone leaves CS asserted from init until the first burst's trailing
+        // gpio_put(true) -- meaning the first transaction of the port's life has no falling
+        // edge on CS. a display mostly gets away with that; an SPI slave peer using hardware
+        // NSS does not, because it takes the falling edge as the start of a transaction and
+        // enables SPE with NSS already low. putting the level first also avoids a low glitch,
+        // since the pin does not drive at all until set_dir() runs.
+        gpio_put(io->io.spi.pin_cs, true);
         gpio_set_dir(io->io.spi.pin_cs, true);
         uint rate = spi_init(port, SPI_BAUDRATE);
         io->io.spi.clock_hz = rate;
@@ -220,6 +252,8 @@ void _platform_spi4_port_init(struct io_context *io)
                 gpio_set_dir(io->pin_reset, true);
         }
         gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SIO);
+        // see _platform_spi3_port_init() for why CS is driven high before it becomes an output
+        gpio_put(io->io.spi.pin_cs, true);
         gpio_set_dir(io->io.spi.pin_cs, true);
         gpio_set_function(io->io.spi.pin_dc, GPIO_FUNC_SIO);
         gpio_set_dir(io->io.spi.pin_dc, true);
@@ -246,6 +280,8 @@ void _platform_pio_spi4_port_init(struct io_context *io)
         gpio_set_function(io->pin_reset, GPIO_FUNC_SIO);
         gpio_set_dir(io->pin_reset, true);
         gpio_set_function(io->io.spi.pin_cs, GPIO_FUNC_SIO);
+        // see _platform_spi3_port_init() for why CS is driven high before it becomes an output
+        gpio_put(io->io.spi.pin_cs, true);
         gpio_set_dir(io->io.spi.pin_cs, true);
         gpio_set_function(io->io.spi.pin_dc, GPIO_FUNC_SIO);
         gpio_set_dir(io->io.spi.pin_dc, true);
@@ -388,20 +424,36 @@ bool _platform_i2c_burst_is_complete(struct io_context *io)
 {
         return true;
 }
+//   THE 3-PIN SENDS WERE EMPTY STUBS, and silently so: light_ioport_send_data_burst()
+// dispatched IO_SPI_3P here and returned having done nothing at all. Any caller looked
+// correct, compiled clean and moved no bytes -- crossfire's inter-board SPI link ran this way,
+// with a fully configured SPI peripheral and CS pin that were simply never driven.
+//   the only difference from the SPI4 versions below is that there is no D/C pin to set: a
+// 3-pin port is SCK, MOSI and CS. CS frames each call, which is what gives a receiving slave
+// its per-transaction delimiter.
+//   NOTE this treats a "command" byte exactly like a data byte, because with no D/C line
+// there is nothing at this layer to distinguish them. A 3-wire display that encodes D/C as a
+// 9th bit is a different protocol and would need its own io_type rather than this one.
 void _platform_spi3_send_command_byte(struct io_context *io, uint8_t cmd)
 {
-
+        gpio_put(io->io.spi.pin_cs,false);
+        spi_write_blocking(_spi_select(io->port_id), &cmd, 1);
+        gpio_put(io->io.spi.pin_cs,true);
 }
 void _platform_spi3_send_data_byte(struct io_context *io, uint8_t data)
 {
-
+        gpio_put(io->io.spi.pin_cs,false);
+        spi_write_blocking(_spi_select(io->port_id), &data, 1);
+        gpio_put(io->io.spi.pin_cs,true);
 }
 void _platform_spi3_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len)
 {
-
+        gpio_put(io->io.spi.pin_cs,false);
+        spi_write_blocking(_spi_select(io->port_id), data, len);
+        gpio_put(io->io.spi.pin_cs,true);
 }
-// SPI3 sends are unimplemented stubs above -- these follow the same pass-through shape as
-// the I2C ones for API consistency, but there's nothing to actually overlap yet either way
+// SPI3 sends aren't DMA-backed -- this follows the same pass-through shape as the I2C ones
+// for API consistency, but there's nothing to actually overlap yet either way
 void _platform_spi3_send_data_burst_async(struct io_context *io, const uint8_t *data, uint32_t len)
 {
         _platform_spi3_send_data_burst(io, data, len);
