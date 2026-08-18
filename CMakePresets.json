@@ -62,6 +62,21 @@
                 "LIGHT_PLATFORM": "TARGET",
                 "LIGHT_BOARD": "mini_stm32h7"
             }
+        },
+        {
+            "name": "conf-demo-bluepill-plus-debug",
+            "description": "WeAct BluePill+ (STM32F103C8T6) on bare CMSIS. See conf-demo-blackpill-debug for the toolchain note.",
+            "inherits": [
+                "conf-light-base",
+                "conf-light-debug"
+            ],
+            "binaryDir": "${sourceDir}/build-bluepill-plus",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "LIGHT_SYSTEM": "CMSIS",
+                "LIGHT_PLATFORM": "TARGET",
+                "LIGHT_BOARD": "bluepill_plus"
+            }
         }
     ],
     "buildPresets": [
@@ -89,6 +104,11 @@
             "name": "build-demo-mini-stm32h7-debug",
             "configurePreset": "conf-demo-mini-stm32h7-debug",
             "targets": ["demo_mini_stm32h7"]
+        },
+        {
+            "name": "build-demo-bluepill-plus-debug",
+            "configurePreset": "conf-demo-bluepill-plus-debug",
+            "targets": ["demo_bluepill_plus"]
         }
     ]
 }

@@ -66,6 +66,12 @@ static const struct pwm_pin_map _pin_map[] = {
         { PWM_PIN('A', 10), TIM1, 3, false, 1, 1 },
         { PWM_PIN('A', 11), TIM1, 4, false, 1, 1 },
 };
+#elif defined(STM32F103xB)
+//   empty rather than absent: the F1's GPIO block has no alternate-function register at all
+// (remapping is a single whole-peripheral bit in AFIO_MAPR, not a per-pin field), so open()'s
+// AFR-based configure step below does not apply here regardless of the table. Nothing on the
+// BluePill+ drives PWM yet; wire up AFIO_MAPR handling here first if something needs to.
+static const struct pwm_pin_map _pin_map[] = { };
 #else
 static const struct pwm_pin_map _pin_map[] = { };
 #endif
@@ -100,6 +106,8 @@ static void _port_clock_enable(uint8_t pin)
         uint32_t bit = 1U << PIN_PORT_INDEX(pin);
 #if defined(STM32H743xx)
         RCC->AHB4ENR |= bit;
+#elif defined(STM32F103xB)
+        RCC->APB2ENR |= (bit << 2);     // see light_platform_gpio.c's _port_clock_enable
 #else
         RCC->AHB1ENR |= bit;
 #endif
@@ -163,6 +171,7 @@ struct lp_pwm *light_platform_pwm_open(uint8_t pin)
         _timer_clock_enable(map->tim);
         _port_clock_enable(pin);
 
+#if !defined(STM32F103xB)
         GPIO_TypeDef *port = _port_of(pin);
         uint32_t n = PIN_NUMBER(pin);
         port->MODER &= ~(3U << (n * 2));
@@ -172,6 +181,7 @@ struct lp_pwm *light_platform_pwm_open(uint8_t pin)
         port->PUPDR &= ~(3U << (n * 2));
         port->AFR[n >> 3] &= ~(0xFU << ((n & 7) * 4));
         port->AFR[n >> 3] |= ((uint32_t)map->af << ((n & 7) * 4));
+#endif
 
         return pwm;
 }
@@ -195,6 +205,7 @@ void light_platform_pwm_configure(struct lp_pwm *pwm, uint16_t wrap, uint8_t clk
         // and nothing else would put it back -- the RP2 port learned this as a tone that
         // sounded exactly once, with no error anywhere, because the second configure() set up
         // a slice that no longer reached the pin
+#if !defined(STM32F103xB)
         GPIO_TypeDef *afport = _port_of(pwm->pin);
         if(afport) {
                 uint32_t an = PIN_NUMBER(pwm->pin);
@@ -203,6 +214,7 @@ void light_platform_pwm_configure(struct lp_pwm *pwm, uint16_t wrap, uint8_t clk
                 afport->AFR[an >> 3] &= ~(0xFU << ((an & 7) * 4));
                 afport->AFR[an >> 3] |= ((uint32_t)pwm->af << ((an & 7) * 4));
         }
+#endif
 
         tim->CR1 &= ~TIM_CR1_CEN;
         tim->PSC = (clkdiv > 0) ? (clkdiv - 1) : 0;
@@ -312,8 +324,10 @@ void light_platform_pwm_release_pin(struct lp_pwm *pwm, bool level)
         // re-assert the alternate function -- the RP2 port learned this the hard way, where a
         // released pin left a tone that sounded exactly once
         port->BSRR = level ? (1U << n) : (1U << (n + 16));
+#if !defined(STM32F103xB)
         port->MODER &= ~(3U << (n * 2));
         port->MODER |= (1U << (n * 2));         // plain output
+#endif
 }
 
 uint8_t light_platform_pwm_get_group(const struct lp_pwm *pwm)

@@ -16,3 +16,7 @@
 	path = lib/cmsis_device_h7
 	url = https://github.com/STMicroelectronics/cmsis_device_h7.git
 	shallow = true
+[submodule "lib/cmsis_device_f1"]
+	path = lib/cmsis_device_f1
+	url = https://github.com/STMicroelectronics/cmsis_device_f1.git
+	shallow = true

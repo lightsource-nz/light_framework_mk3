@@ -14,6 +14,7 @@
                 'conf-light-pico-host'         = 'build-pico-hostmode'
                 'conf-demo-blackpill-debug'    = 'build-blackpill'
                 'conf-demo-mini-stm32h7-debug' = 'build-mini-stm32h7'
+                'conf-demo-bluepill-plus-debug' = 'build-bluepill-plus'
         }
 
         Expect = @{
@@ -21,15 +22,26 @@
                 'conf-light-pico-host'         = @{ LIGHT_PLATFORM = 'HOST'; LIGHT_SYSTEM = 'PICO_SDK' }
                 'conf-demo-blackpill-debug'    = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
                 'conf-demo-mini-stm32h7-debug' = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
+                'conf-demo-bluepill-plus-debug' = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
         }
 
         Targets = @{
                 'demo_cli'          = @{ Preset = 'conf-demo-cli-debug' }
                 'demo_blackpill'    = @{ Preset = 'conf-demo-blackpill-debug' }
                 'demo_mini_stm32h7' = @{ Preset = 'conf-demo-mini-stm32h7-debug' }
+                'demo_bluepill_plus' = @{ Preset = 'conf-demo-bluepill-plus-debug' }
         }
 
         DefaultTarget = 'demo_cli'
+
+        #   which OpenOCD config belongs to each preset, for scripts/light-debug.ps1 -- see
+        # crossfire's project.config.ps1 for the fuller version of this pattern. No Svd: none is
+        # vendored for the F1 either, same as the mini_stm32h7 entry would have if it had one.
+        Debug = @{
+                'conf-demo-bluepill-plus-debug' = @{
+                        Config = 'openocd-bluepill-plus.cfg'
+                }
+        }
 
         Test = @{
                 Preset = 'conf-demo-cli-debug'

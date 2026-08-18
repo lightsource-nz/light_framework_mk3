@@ -64,7 +64,12 @@ if (-not $NoBuild) {
 #   the executable is named differently per toolchain: pico_add_extra_outputs() gives the pico
 # targets a .elf suffix, while the CMSIS targets are plain CMake executables and carry no suffix
 # at all (their .bin and .hex are objcopy'd from this file by the post-build hook in cmsis.cmake)
-$elf = @("module/$Target/$Target.elf", "module/$Target/$Target") |
+#
+#   BOTH 'module/' and 'test/' are searched: consuming projects (screen-test, crossfire) put
+# their flashable targets under module/, but this framework's own demos -- the only targets
+# this project itself can debug -- live under test/ (see the root CMakeLists.txt)
+$elf = @("module/$Target/$Target.elf", "module/$Target/$Target",
+        "test/$Target/$Target.elf", "test/$Target/$Target") |
         ForEach-Object { Join-Path $tree $_ } |
         Where-Object { Test-Path $_ -PathType Leaf } |
         Select-Object -First 1

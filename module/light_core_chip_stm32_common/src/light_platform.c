@@ -95,7 +95,7 @@ void light_platform_init()
         // per power domain where the F4 has a single sleep bit.
 #if defined(STM32H743xx)
         DBGMCU->CR |= DBGMCU_CR_DBG_SLEEPD1 | DBGMCU_CR_DBG_STOPD1 | DBGMCU_CR_DBG_STANDBYD1;
-#elif defined(STM32F411xE)
+#elif defined(STM32F411xE) || defined(STM32F103xB)
         DBGMCU->CR |= DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_STANDBY;
 #endif
 
