@@ -17,6 +17,11 @@
 #define LIGHT_CLI_OPTION_VALUE_MAX              32
 #define LIGHT_CLI_MAX_COMMAND_DEPTH             LIGHT_CLI_MAX_SUBCOMMANDS
 
+//   the command-line parser's own token limit, and so the largest argv a tokenized line may
+// produce. Public because light_cli_tokenize_line() fills such an array on the caller's stack,
+// and a caller sizing it independently would hand the parser more tokens than it reads
+#define LIGHT_CLI_MAX_TOKENS                    64
+
 #define LIGHT_CLI_OPTION                        0
 #define LIGHT_CLI_SWITCH                        1
 struct light_cli_option {
@@ -249,5 +254,49 @@ static inline struct light_cli_option *light_cli_create_switch(
 }
 extern struct light_command *light_cli_find_command(
                                 struct light_command *parent, const uint8_t *name);
+
+/*   RUNNING A COMMAND LINE THAT ARRIVES AS A STRING, rather than as an argv at process launch.
+ * A REPL prompt, a batch script and a command typed at a serial console are all the same
+ * problem, and none of them could use the launch-time path: light_cli_process_command_line()
+ * wants a tokenized argv, and dispatch lived inside a one-shot task that by construction ran
+ * exactly once per process.
+ *
+ *   DELIBERATELY ONLY THE REUSABLE HALF. Where lines come from, when to prompt, what ends a
+ * session and whether a failure should stop a script all depend on the line source -- a
+ * terminal, a file, a UART -- so the loop belongs to the application. font-crusher's
+ * `crush console` is one such loop. Everything declared here is string work plus the
+ * framework's own stream layer: no stdio, no isatty, nothing a target build cannot compile.
+ */
+
+//   splits `line` into tokens IN PLACE, writing at most argv_max pointers into argv and the
+// count to *argc_out. `line` must be writable and must outlive every use of argv, because the
+// tokens are pointers into it, not copies.
+//
+//   Quoting: "..." and '...' group whitespace and are removed from the token. THERE ARE NO
+// BACKSLASH ESCAPES, which is a decision rather than an omission -- on Windows the backslash is
+// the path separator, so treating it as an escape would quietly eat the separators out of every
+// path typed at the prompt. The cost is that a literal quote cannot appear inside a quoted
+// token, which no path needs.
+//   A '#' STARTING A TOKEN comments out the remainder of the line. Only at the start of a
+// token, and only unquoted, so a '#' inside a word or inside quotes stays an ordinary
+// character.
+//   Returns LIGHT_OK, or LIGHT_INVALID for an unterminated quote or more than argv_max tokens
+// (both logged). A blank or comment-only line is LIGHT_OK with *argc_out == 0.
+extern uint8_t light_cli_tokenize_line(uint8_t *line, char *argv[], uint8_t argv_max, uint8_t *argc_out);
+
+//   tokenizes, parses and dispatches one command line against `root`, which must be a NAMED
+// command -- an application passes its own root command (crush passes cmd_crush), whose name
+// becomes the synthetic argv[0] the parser matches its first token against. Lines are therefore
+// typed without the program name ("font list"), though typing it anyway is accepted.
+//   Returns LIGHT_OK if a command ran and reported success, or if the line was blank or a
+// comment. LIGHT_INVALID if the line could not be parsed or the command reported failure; the
+// reason is already logged by whichever layer found it, so a caller only needs the verdict.
+extern uint8_t light_cli_run_line(struct light_command *root, uint8_t *line);
+
+//   writes a usage summary for `command` -- its own usage line and description, then its
+// subcommands and its options -- to light_stream_stdout. Through the stream layer rather than
+// printf so it stays ordered with everything else the command tree logs, and so it works on a
+// target whose console is not stdio at all
+extern void light_cli_print_command_help(struct light_command *command);
 
 #endif

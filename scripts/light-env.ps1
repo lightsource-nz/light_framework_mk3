@@ -46,10 +46,18 @@ if (-not $env:LIGHT_PATH) { $env:LIGHT_PATH = (_ForCMake $frameworkRoot) }
 #
 #   resolved against the project being worked in when there is one -- so a project checked out
 # somewhere else finds ITS siblings -- falling back to the framework's own location otherwise
-$projectRoot = $frameworkRoot
+#
+#   NAMED $envProjectRoot, AND THAT MATTERS. This script is DOT-SOURCED by every wrapper, so
+# everything it assigns lands in the caller's own scope -- and PowerShell variable names are
+# case-insensitive, so a `$projectRoot` here IS the caller's `$ProjectRoot` parameter. Every
+# wrapper that passed -ProjectRoot had it silently replaced, one line before it was read, by
+# whatever Get-LightProjectRoot made of the current directory. font-crusher's scripts/build.ps1
+# run from another project's directory therefore built the OTHER project's default target and
+# reported success -- exactly the class of wrong-tree failure this script layer exists to stop.
+$envProjectRoot = $frameworkRoot
 try {
         Import-Module (Join-Path $PSScriptRoot 'lib/LightProject.psm1') -Force
-        $projectRoot = Get-LightProjectRoot
+        $envProjectRoot = Get-LightProjectRoot
 } catch {
         # not inside a project (or no CMakePresets.json above the cwd) -- the framework's own
         # parent is the right answer then, and is the same directory in a normal checkout
@@ -60,13 +68,13 @@ try {
 # late and misleadingly -- as "Unknown CMake command pico_enable_stdio_semihosting" -- and worse,
 # the failed configure caches the HOST compiler, so a later correct configure still builds
 # boot_stage2 with w64devkit's cc.exe. The only recovery is deleting the build tree.
-$env:PICO_SDK_PATH = _ForCMake (Resolve-LightDependency -Name 'pico-sdk' -ProjectRoot $projectRoot -EnvVar 'PICO_SDK_PATH')
+$env:PICO_SDK_PATH = _ForCMake (Resolve-LightDependency -Name 'pico-sdk' -ProjectRoot $envProjectRoot -EnvVar 'PICO_SDK_PATH')
 
 #   without this, rend's own Findcrush.cmake defaults FONT_CRUSHER_PATH relative to ITSELF,
 # misses the sibling checkout, and silently FetchContent-fetches font-crusher from GitHub --
 # so local crush edits have no effect at all. screen-test works around it in CMake; crossfire
 # does not, and every one of its build trees is currently building against a fetched copy.
-$env:FONT_CRUSHER_PATH = _ForCMake (Resolve-LightDependency -Name 'font-crusher' -ProjectRoot $projectRoot -EnvVar 'FONT_CRUSHER_PATH')
+$env:FONT_CRUSHER_PATH = _ForCMake (Resolve-LightDependency -Name 'font-crusher' -ProjectRoot $envProjectRoot -EnvVar 'FONT_CRUSHER_PATH')
 
 #   the toolchain directories to prepend, which are genuinely different per platform rather
 # than the same thing spelled two ways.

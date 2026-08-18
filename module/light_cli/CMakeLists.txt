@@ -14,6 +14,9 @@ target_sources(
         light_cli INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/src/module.c
         ${CMAKE_CURRENT_LIST_DIR}/src/command.c
+        # runtime command lines (a console, a script) rather than launch-time argv -- see the
+        # header of line.c for why the reading half of that is not in here
+        ${CMAKE_CURRENT_LIST_DIR}/src/line.c
 )
 
 target_link_libraries(

@@ -106,8 +106,10 @@ void light_cli__autoload_option(void *object)
         struct light_cli_option *option = (struct light_cli_option *)object;
         light_cli_register_option_ctx(option->command, option);
 }
-// we define the internal command-line parser's input limit to 64 tokens
-#define MAX_TOKENS              64
+//   the internal command-line parser's input limit. Spelled as the public constant because
+// light_cli_tokenize_line() sizes a caller's argv by it, and the two must agree: an argv longer
+// than this is silently half-read by the classifier loop below
+#define MAX_TOKENS              LIGHT_CLI_MAX_TOKENS
 #define TOKEN_CMDARG            0
 #define TOKEN_OPT_S             1
 #define TOKEN_OPT_L             2
@@ -141,6 +143,15 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         // identifying commands and options by name, and binding argument values to
         // the commands and options which expect them.
         struct cli_token token[MAX_TOKENS];
+        //   CLAMPED, because the classifier loop below stops at MAX_TOKENS while the matcher
+        // loop that follows it walked all the way to argc -- so an argv longer than the token
+        // array had its tail matched out of uninitialised stack. Dropping the excess is the
+        // honest failure: it is reported, and every token that did fit is still parsed
+        if(argc > MAX_TOKENS) {
+                light_warn("command line has %d tokens, only the first %d will be parsed",
+                                argc, MAX_TOKENS);
+                argc = MAX_TOKENS;
+        }
         // token zero is a special case where we extract the command name from the path
         token[0].type = TOKEN_CMDARG;
         uint8_t *cmd_name = _cli_basename((uint8_t *)argv[0]);
@@ -264,20 +275,39 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
 // called by the framework once application has loaded, to dispatch command
 uint8_t cli_task(struct light_application *app)
 {
+        return light_cli_dispatch_command_line(&static_invoke);
+}
+//   calls the handler for a parsed invocation, following any alias chain it returns.
+//
+//   SEPARATE FROM cli_task() because it has to be callable more than once per process: the
+// launch-time path dispatches the single static_invoke and is done, while a console dispatches a
+// freshly-parsed invocation per line typed. The task is now nothing but that one call, so both
+// paths follow aliases and report failures identically -- which they would not for long if the
+// console grew its own copy of this loop
+uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke)
+{
         //   no target means nothing to run, and is not an error. static_invoke is file-scope, so
         // target is NULL until a command line is parsed into it -- which happens for an
         // application that was given no arguments and has no baked boot command, and for one
         // whose command line failed to parse. That parse failure used to be light_fatal(), so
         // this could not be reached; it is light_error() now, because exit(-1) on a target with
         // no console is an unexplained hang
-        if(!static_invoke.target) {
+        if(!invoke->target) {
                 light_debug("no command to dispatch");
                 return LF_STATUS_RUN;
         }
-        const uint8_t *full_name = light_cli_command_get_full_name(static_invoke.target);
+        //   a command with no handler at all, which every intermediate node in a tree is
+        // entitled to be -- there is no reason `crush font` must do something just because
+        // `crush font add` does. Calling through the null pointer is what used to happen
+        if(!invoke->target->handler) {
+                light_error("command '%s' has no handler; it takes a subcommand",
+                                light_cli_command_get_short_name(invoke->target));
+                return LF_STATUS_ERROR;
+        }
+        const uint8_t *full_name = light_cli_command_get_full_name(invoke->target);
         light_debug("calling command handler for for command '%s'", full_name);
-        struct light_command *last_command = static_invoke.target;
-        struct light_cli_invocation_result result = static_invoke.target->handler(&static_invoke);
+        struct light_command *last_command = invoke->target;
+        struct light_cli_invocation_result result = invoke->target->handler(invoke);
         uint8_t reference_depth = 0;
         while(result.code != LIGHT_CLI_RESULT_SUCCESS) {
                 switch (result.code)
@@ -292,7 +322,14 @@ uint8_t cli_task(struct light_application *app)
                         light_debug("command '%s' aliased to target command '%s'", source, target);
                         last_command = result.value.command;
                         reference_depth++;
-                        result = result.value.command->handler(&static_invoke);
+                        //   an alias target with no handler is the same null call the entry
+                        // check above catches, reached the long way round
+                        if(!last_command->handler) {
+                                light_error("alias target '%s' has no handler",
+                                                light_cli_command_get_short_name(last_command));
+                                return LF_STATUS_ERROR;
+                        }
+                        result = last_command->handler(invoke);
                         break;
                 
                 case LIGHT_CLI_RESULT_ERROR:
@@ -378,6 +415,22 @@ struct light_cli_option *light_cli_find_command_option(
         for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
                 if(!strncmp(light_cli_option_get_name(command->option[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
                         return command->option[i];
+                }
+        }
+        //   THEN BY SINGLE-LETTER CODE, in a second pass. Every option carries a `code` and
+        // every application supplies one, but nothing ever compared against it -- lookup was by
+        // name only, so '-t' for '--font' silently reported "no option named 't'" and the short
+        // form of every option in every one of these projects did not work.
+        //
+        //   a SECOND pass rather than a second test inside the loop above, so that an option
+        // whose name really is one character always beats an earlier option that happens to
+        // carry that letter as its code. Names are what the user wrote out in full; a code is
+        // an abbreviation, and an abbreviation should never shadow the full spelling
+        if(name[0] && !name[1]) {
+                for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
+                        if(light_cli_option_get_code(command->option[i]) == (const char)name[0]) {
+                                return command->option[i];
+                        }
                 }
         }
         return NULL;
