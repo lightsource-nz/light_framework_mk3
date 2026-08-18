@@ -37,6 +37,7 @@ if(${LIGHT_SYSTEM} STREQUAL CMSIS)
         add_subdirectory(module/light_core_chip_stm32f411)
         add_subdirectory(module/light_core_chip_stm32h743)
         add_subdirectory(module/light_core_chip_stm32f103)
+        add_subdirectory(module/light_core_chip_stm32f446)
 endif()
 add_subdirectory(module/light_core_board_pico_hostmode)
 #   built for every platform. This was HOST-only, on the grounds that it "targets terminal-based
@@ -85,6 +86,9 @@ if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL mini_stm32h7)
 endif()
 if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL bluepill_plus)
         add_subdirectory(test/demo_bluepill_plus)
+endif()
+if(${LIGHT_SYSTEM} STREQUAL CMSIS AND LIGHT_BOARD STREQUAL weact_stm32f446)
+        add_subdirectory(test/demo_weact_stm32f446)
 endif()
 
 #   tests. include(CTest) rather than a bare enable_testing(): it defines BUILD_TESTING (ON by

@@ -15,6 +15,7 @@
                 'conf-demo-blackpill-debug'    = 'build-blackpill'
                 'conf-demo-mini-stm32h7-debug' = 'build-mini-stm32h7'
                 'conf-demo-bluepill-plus-debug' = 'build-bluepill-plus'
+                'conf-demo-weact-stm32f446-debug' = 'build-weact-stm32f446'
         }
 
         Expect = @{
@@ -23,6 +24,7 @@
                 'conf-demo-blackpill-debug'    = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
                 'conf-demo-mini-stm32h7-debug' = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
                 'conf-demo-bluepill-plus-debug' = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
+                'conf-demo-weact-stm32f446-debug' = @{ LIGHT_PLATFORM = 'TARGET'; LIGHT_SYSTEM = 'CMSIS' }
         }
 
         Targets = @{
@@ -30,6 +32,7 @@
                 'demo_blackpill'    = @{ Preset = 'conf-demo-blackpill-debug' }
                 'demo_mini_stm32h7' = @{ Preset = 'conf-demo-mini-stm32h7-debug' }
                 'demo_bluepill_plus' = @{ Preset = 'conf-demo-bluepill-plus-debug' }
+                'demo_weact_stm32f446' = @{ Preset = 'conf-demo-weact-stm32f446-debug' }
         }
 
         DefaultTarget = 'demo_cli'
@@ -40,6 +43,9 @@
         Debug = @{
                 'conf-demo-bluepill-plus-debug' = @{
                         Config = 'openocd-bluepill-plus.cfg'
+                }
+                'conf-demo-weact-stm32f446-debug' = @{
+                        Config = 'openocd-weact-stm32f446.cfg'
                 }
         }
 
