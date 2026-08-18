@@ -293,6 +293,23 @@ extern uint8_t light_cli_tokenize_line(uint8_t *line, char *argv[], uint8_t argv
 // reason is already logged by whichever layer found it, so a caller only needs the verdict.
 extern uint8_t light_cli_run_line(struct light_command *root, uint8_t *line);
 
+//   queues a command line for cli_task() to run on a later tick, instead of the caller running
+// it (and everything after it) inline. This is what makes a console safe on a single-core
+// target: cli_task() is a periodic task now, and drains at most ONE queued line per call (see
+// its own comment), so a session feeding lines through here cannot starve every other periodic
+// task the way a loop calling light_cli_run_line() directly, from inside a command handler,
+// would.
+//   backed by a light_stream_mqueue -- the same fixed-size, no-heap, lock-protected ring buffer
+// light_stream's own log queues use -- rather than a second one written from scratch. `root` is
+// remembered for every line currently queued, since every command line running through here
+// belongs to the one application in this process; queueing from more than one root is not a
+// case that exists yet.
+//   Returns false, queueing nothing, if the queue already holds LIGHT_STREAM_MQUEUE_DEPTH lines
+// or `line` would not fit in LIGHT_STREAM_MAX_MSG_LENGTH - 1 characters (it is truncated, not
+// rejected, the same as any other message on this queue type). Never blocks: an application
+// feeding this from its own periodic task must not stall waiting for cli_task() to catch up.
+extern bool light_cli_queue_line(struct light_command *root, const uint8_t *line);
+
 //   writes a usage summary for `command` -- its own usage line and description, then its
 // subcommands and its options -- to light_stream_stdout. Through the stream layer rather than
 // printf so it stays ordered with everything else the command tree logs, and so it works on a

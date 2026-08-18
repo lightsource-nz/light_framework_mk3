@@ -26,12 +26,41 @@ struct lobj_type ltype_cli_command = {
 struct light_command root_command;
 struct light_cli_invocation static_invoke;
 
+//   light_cli_queue_line()'s backing store -- see that function and cli_task() for the full
+// picture. A light_stream_mqueue rather than a bespoke ring buffer: it is already the
+// framework's fixed-size, no-heap, lock-protected queue of text messages, and reusing it here
+// is one queue implementation to get right instead of two
+static light_mutex_t queue_lock;
+static struct light_stream_mqueue queue;
+//   the root every currently-queued line dispatches against. A single value rather than one
+// per queued line because every line passing through this queue belongs to the one application
+// running in this process -- see light_cli_queue_line()'s header comment
+static struct light_command *queue_root;
+
 static void command_release(struct light_object *cmd)
 {
         light_free(to_command(cmd));
 }
 void light_cli_init()
 {
+        light_mutex_init(&queue_lock);
+        light_stream_mqueue_init(&queue);
+}
+bool light_cli_queue_line(struct light_command *root, const uint8_t *line)
+{
+        light_mutex_do_lock(&queue_lock);
+        if(light_stream_mqueue_is_full(&queue)) {
+                light_mutex_do_unlock(&queue_lock);
+                return false;
+        }
+        queue_root = root;
+        uint8_t index = queue.head;
+        queue.count++;
+        queue.head = (queue.head + 1) % LIGHT_STREAM_MQUEUE_DEPTH;
+        queue.message[index].flags = LIGHT_MSG_FAST;
+        snprintf((char *)queue.message[index].text, LIGHT_STREAM_MAX_MSG_LENGTH, "%s", (const char *)line);
+        light_mutex_do_unlock(&queue_lock);
+        return true;
 }
 #define LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE      128
 static const uint8_t *cli_command_get_full_name(struct light_command *command)
@@ -272,10 +301,31 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         light_debug("finished parsing command line, target command: '%s'", full_name);
         return LIGHT_OK;
 }
-// called by the framework once application has loaded, to dispatch command
+//   the periodic task the framework calls once every scheduler tick. Does AT MOST ONE unit of
+// work per call and always returns promptly, which is what makes it safe to run alongside every
+// other periodic task (including, on a single-core target, the one draining log output) rather
+// than the one-shot task it used to be -- a one-shot task runs to completion before periodic
+// tasks are even scheduled, so a command that blocks (a console reading from a human) used to
+// block them from ever starting.
+//   the launch-time command line is still dispatched exactly once, on this task's first tick;
+// after that, each tick drains and dispatches at most one line from the queue
+// light_cli_queue_line() feeds, so a session queueing many lines cannot starve anything else by
+// having them all run back-to-back inside a single tick
 uint8_t cli_task(struct light_application *app)
 {
-        return light_cli_dispatch_command_line(&static_invoke);
+        static bool static_invoke_dispatched = false;
+
+        if(!static_invoke_dispatched) {
+                static_invoke_dispatched = true;
+                if(static_invoke.target)
+                        return light_cli_dispatch_command_line(&static_invoke);
+        }
+
+        struct light_message queued;
+        if(!light_stream_mqueue_try_get(&queue_lock, &queue, &queued))
+                return LF_STATUS_RUN;
+        light_cli_run_line(queue_root, queued.text);
+        return LF_STATUS_RUN;
 }
 //   calls the handler for a parsed invocation, following any alias chain it returns.
 //

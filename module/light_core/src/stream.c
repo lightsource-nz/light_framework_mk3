@@ -222,6 +222,10 @@ void light_stream_shutdown()
 static bool _all_stream_queues_empty()
 {
         for(uint8_t i = 0; i < streams_defined_count; i++) {
+                // an INPUT stream has no queue anything ever writes to; skip it rather than
+                // check a queue that will always read empty regardless of the input it holds
+                if(streams_defined[i]->direction != LIGHT_STREAM_OUTPUT)
+                        continue;
                 if(!light_stream_mqueue_is_empty(light_stream_get_queue(streams_defined[i])))
                         return false;
         }
@@ -295,6 +299,12 @@ void light_stream_service_message_queues()
 {
         for(uint8_t i = 0; i < streams_defined_count; i++) {
                 struct light_stream *stream = streams_defined[i];
+                // the sweep is OUTPUT-only: an INPUT stream's .handler is unset, and its queue
+                // (if it even has messages sitting in it, which nothing arranges) is not what
+                // draining this stream would mean. Reading an input stream is a deliberate act
+                // by whoever wants a line from it -- see light_stream_read_line()
+                if(stream->direction != LIGHT_STREAM_OUTPUT)
+                        continue;
                 struct light_stream_mqueue *queue = light_stream_get_queue(stream);
                 if(!light_stream_mqueue_is_empty(queue)) {
                         // processed directly out of the queue slot, under a single lock hold,
@@ -329,11 +339,18 @@ void light_stream_init(struct light_stream *stream)
         // been launched back in light_platform_init(). Two lines of boot trace are not worth
         // an occasional cross-core collision inside the USB stack
 #if !LIGHT_PLATFORM_USB_ON_CORE1
-        stream->handler_va(stream, "opening message stream '%s'\n", light_stream_get_name(stream));
+        if(stream->direction == LIGHT_STREAM_OUTPUT)
+                stream->handler_va(stream, "opening message stream '%s'\n", light_stream_get_name(stream));
 #endif
         light_object_init(&stream->obj_header, &ltype_light_stream);
         light_mutex_init(&stream->lock);
         light_stream_mqueue_init(&stream->queue);
+}
+bool light_stream_read_line(struct light_stream *stream, uint8_t *buffer, size_t size)
+{
+        if(stream->direction != LIGHT_STREAM_INPUT || !stream->read_line)
+                return false;
+        return stream->read_line(stream, buffer, size);
 }
 void light_stream_lock_output(struct light_stream *stream)
 {

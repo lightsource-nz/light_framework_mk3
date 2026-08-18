@@ -2,6 +2,7 @@
 #define _LIGHT_STREAM_H
 
 #include <stdarg.h>
+#include <stddef.h>
 
 //   for the two sizing macros below, both of which a port may override. Included here rather
 // than left to light.h's ordering: light.h pulls in light_stream.h BEFORE light_platform.h,
@@ -12,6 +13,13 @@
 // only the 'fast' and 'faster' message types are handled by this facility
 #define LIGHT_MSG_FAST                    0
 #define LIGHT_MSG_FASTER                  1
+
+//   a stream is OUTPUT unless declared otherwise: every stream defined before this existed
+// (light_stream_stdout/_stderr, and every port's own) is output, so that stays the default.
+// INPUT streams are read from rather than written to, and are never touched by the sweep in
+// light_stream_service_message_queues() -- see light_stream_read_line()
+#define LIGHT_STREAM_OUTPUT                0
+#define LIGHT_STREAM_INPUT                 1
 
 // TODO the mqueue interface can probably be excluded from the public API
 //
@@ -82,9 +90,18 @@ struct light_stream {
         // header and the implementation once disagreed about how to touch this field; declaring
         // it atomic is what makes the disagreement impossible rather than merely resolved
         _Atomic uint8_t mode;
+        //   LIGHT_STREAM_OUTPUT or LIGHT_STREAM_INPUT. Never atomic: unlike .mode, nothing sets
+        // this after the stream's static initialiser runs
+        uint8_t direction;
         struct light_stream_mqueue queue;
         int (*handler)(struct light_stream *, const char *restrict);
         int (*handler_va)(struct light_stream *, const char *restrict, ...);
+        //   only present on an INPUT stream: attempts to read one line (NUL-terminated, no
+        // trailing newline) into 'buffer', returning true if a full line was read and false if
+        // none was available. May block the way its own source blocks (e.g. an interactive
+        // terminal waiting on a keypress), but must never loop internally -- one call is one
+        // attempt, so a caller driven by a periodic task returns control after each
+        bool (*read_line)(struct light_stream *, uint8_t *buffer, size_t size);
 };
 
 extern struct lobj_type ltype_light_stream;
@@ -95,6 +112,7 @@ extern struct lobj_type ltype_light_stream;
 { \
         .obj_header = Light_Object_RO(_name, NULL, &ltype_light_stream), \
         .mode = _mode, \
+        .direction = LIGHT_STREAM_OUTPUT, \
         .handler = _handler, \
         .handler_va = _handler_va \
 }
@@ -102,6 +120,7 @@ extern struct lobj_type ltype_light_stream;
 { \
         .obj_header = Light_Object_Static_RO(_name, NULL, &ltype_light_stream), \
         .mode = _mode, \
+        .direction = LIGHT_STREAM_OUTPUT, \
         .handler = _handler, \
         .handler_va = _handler_va \
 }
@@ -113,6 +132,19 @@ extern struct lobj_type ltype_light_stream;
         struct light_stream __static_buffer _ ## name = Light_Stream_Static(#name, mode, handler, handler_va); \
         struct light_stream __static_stream *name = &_ ## name//; \
 //        static const struct light_static_object __static_object autoload_## name = Light_Static_Object(&_ ## name, light__autoload_stream)
+
+//   the input counterpart to Light_Stream_Static()/_Define(): no .mode and no write handlers,
+// since nothing ever queues a message to an input stream -- only .read_line is called, and
+// only by whoever polls this stream directly (light_cli's console support is the first)
+#define Light_Stream_Input_Static(_name, _read_line) \
+{ \
+        .obj_header = Light_Object_Static_RO(_name, NULL, &ltype_light_stream), \
+        .direction = LIGHT_STREAM_INPUT, \
+        .read_line = _read_line \
+}
+#define Light_Stream_Input_Define(name, read_line) \
+        struct light_stream __static_buffer _ ## name = Light_Stream_Input_Static(#name, read_line); \
+        struct light_stream __static_stream *name = &_ ## name
 
 Light_Stream_Declare(light_stream_stdout);
 Light_Stream_Declare(light_stream_stderr);
@@ -180,6 +212,12 @@ extern struct light_message *light_stream_mqueue_peek(struct light_stream_mqueue
 extern void light_stream_mqueue_advance(struct light_stream_mqueue *queue);
 extern bool light_stream_mqueue_is_empty(struct light_stream_mqueue *queue);
 extern bool light_stream_mqueue_is_full(struct light_stream_mqueue *queue);
+
+//   the only way to actually use an INPUT stream: calls its .read_line handler once, returning
+// false (without calling it) if 'stream' is not LIGHT_STREAM_INPUT or declares no handler. Never
+// touched by light_stream_service_message_queues() -- that sweep is output-only, so an input
+// stream is only ever read by something that asks for it directly, on its own schedule
+extern bool light_stream_read_line(struct light_stream *stream, uint8_t *buffer, size_t size);
 
 extern uint8_t light_stream_get_background_logging_mode(struct light_stream *stream);
 extern void light_stream_set_background_logging_mode(struct light_stream *stream, uint8_t mode);
