@@ -82,8 +82,10 @@ $htmlWsl = "$(ConvertTo-LightWslPath $covRoot)/html"
 # not handed a broken path
 $extra = @("-DLIGHT_PATH=$lightWsl")
 foreach ($dep in @(
-        @{ Name = 'pico-sdk';     Var = 'PICO_SDK_PATH' },
-        @{ Name = 'font-crusher'; Var = 'FONT_CRUSHER_PATH' })) {
+        @{ Name = 'pico-sdk';      Var = 'PICO_SDK_PATH' },
+        @{ Name = 'font-crusher';  Var = 'FONT_CRUSHER_PATH' },
+        @{ Name = 'light_usb';     Var = 'LIGHT_USB_PATH' },
+        @{ Name = 'light_display'; Var = 'LIGHT_DISPLAY_PATH' })) {
         $p = Resolve-LightDependency -Name $dep.Name -ProjectRoot $config.Root -EnvVar $dep.Var
         if ($p -and (Test-Path $p)) {
                 $extra += "-D$($dep.Var)=$(ConvertTo-LightWslPath $p)"
