@@ -38,6 +38,14 @@ set(LIGHT_CLI_LINE_TEST_CASES
         run_line_rejects_a_line_it_cannot_tokenize
         run_line_rejects_bad_arguments
         help_prints_every_command_shape
+        queue_line_runs_on_a_later_tick
+        queue_line_runs_one_line_per_tick
+        cli_task_is_idle_with_an_empty_queue
+        queue_line_reports_a_full_queue
+        queue_line_truncates_an_over_long_line
+        queue_line_survives_a_failing_command
+        queue_line_refuses_a_null_line
+        queue_line_defers_validation_to_the_tick
 )
 foreach(_case ${LIGHT_CLI_LINE_TEST_CASES})
         add_test(NAME light_cli_line.${_case} COMMAND test_light_cli_line ${_case})

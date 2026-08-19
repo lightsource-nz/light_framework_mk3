@@ -48,6 +48,22 @@ void light_cli_init()
 }
 bool light_cli_queue_line(struct light_command *root, const uint8_t *line)
 {
+        //   NULL is refused rather than passed to snprintf("%s"), where it is undefined
+        // behaviour. "queue whatever the console just read" is the natural way to call this and
+        // a read that failed is the obvious way to arrive with nothing, so it is a case to
+        // answer rather than one to leave to chance.
+        //   MEASURED, not assumed: with this check removed, mingw's CRT does not fault -- it
+        // formats the literal text "(null)", which is then queued and DISPATCHED a tick later as
+        // a command line nobody typed. That is the worse of the two outcomes, because it is
+        // silent; a libc that faults instead at least says something happened.
+        //   `root` is deliberately NOT checked here: it cannot be validated without duplicating
+        // what light_cli_run_line() already does, and there is no caller waiting on the answer
+        // by the time it would be known. An unusable root costs its line a tick later, which is
+        // where every other line-level failure is reported too
+        if(!line) {
+                light_error("refusing to queue a NULL command line");
+                return false;
+        }
         light_mutex_do_lock(&queue_lock);
         if(light_stream_mqueue_is_full(&queue)) {
                 light_mutex_do_unlock(&queue_lock);
@@ -310,7 +326,21 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
 //   the launch-time command line is still dispatched exactly once, on this task's first tick;
 // after that, each tick drains and dispatches at most one line from the queue
 // light_cli_queue_line() feeds, so a session queueing many lines cannot starve anything else by
-// having them all run back-to-back inside a single tick
+// having them all run back-to-back inside a single tick.
+//
+//   THIS TASK MUST BE SCHEDULED AHEAD OF WHATEVER FEEDS THE QUEUE, and that is load-bearing
+// rather than incidental. A feeder reads one line per tick and this drains one per tick, so the
+// queue holds at most a single line, dispatched on the tick AFTER it was read. When the feeder
+// ends the session -- an interactive console reaching EOF -- it does so by returning
+// LF_STATUS_SHUTDOWN, and the scheduler abandons the rest of that pass the moment it sees one.
+// So the last line survives only because this task already ran earlier in the same pass. Were
+// the order reversed, every session would silently lose whatever was typed last.
+//   It holds because periodic tasks run in registration order and this one is registered at
+// light_cli's MODULE_LOAD, while a feeder belongs to an application module -- which loads after
+// its dependencies -- or is registered later still by a command handler. Nothing enforces it
+// beyond that, which is why it is written down here.
+//   font-crusher's cmd_console__interactive_runs_every_queued_line pins the consequence: it
+// counts the commands that actually ran, and a lost last line shows up as a count one short.
 uint8_t cli_task(struct light_application *app)
 {
         static bool static_invoke_dispatched = false;

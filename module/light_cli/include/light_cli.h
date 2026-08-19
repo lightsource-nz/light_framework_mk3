@@ -304,10 +304,13 @@ extern uint8_t light_cli_run_line(struct light_command *root, uint8_t *line);
 // remembered for every line currently queued, since every command line running through here
 // belongs to the one application in this process; queueing from more than one root is not a
 // case that exists yet.
-//   Returns false, queueing nothing, if the queue already holds LIGHT_STREAM_MQUEUE_DEPTH lines
-// or `line` would not fit in LIGHT_STREAM_MAX_MSG_LENGTH - 1 characters (it is truncated, not
-// rejected, the same as any other message on this queue type). Never blocks: an application
-// feeding this from its own periodic task must not stall waiting for cli_task() to catch up.
+//   Returns false, queueing nothing, for a NULL `line` or when the queue already holds
+// LIGHT_STREAM_MQUEUE_DEPTH lines. Never blocks: an application feeding this from its own
+// periodic task must not stall waiting for cli_task() to catch up.
+//   A LINE LONGER THAN LIGHT_STREAM_MAX_MSG_LENGTH - 1 CHARACTERS IS TRUNCATED, NOT REFUSED, and
+// still returns true -- the same treatment an over-long message gets from any other queue of
+// this type. So a true return means the line was accepted, not that all of it was: a caller
+// whose lines can be that long has to check the length itself.
 extern bool light_cli_queue_line(struct light_command *root, const uint8_t *line);
 
 //   writes a usage summary for `command` -- its own usage line and description, then its

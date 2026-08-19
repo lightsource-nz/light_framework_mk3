@@ -47,12 +47,19 @@ Light_Application_Define(test_light_cli_line, _test_app_event, _test_app_main,
 
 static int failures;
 
+//   the flush is what the other suites do not need. This one runs a full light_framework_init(),
+// so the framework's log output is drained by a BACKGROUND THREAD -- and a queued line landing
+// between the two halves of a failure message splits it down the middle, which is how
+// "expected 3, got 1" came out as "expected 3, [ DEBUG] calling command handler..." in a real
+// run. Draining first leaves nothing to interleave.
 #define CHECK(cond, ...) do { \
         if(!(cond)) { \
                 failures++; \
+                light_stream_flush(); \
                 printf("  FAIL %s:%d: ", __func__, __LINE__); \
                 printf(__VA_ARGS__); \
                 printf("\n"); \
+                fflush(stdout); \
         } \
 } while(0)
 
@@ -386,6 +393,160 @@ static void test_help_prints_every_command_shape(void)
         CHECK(true, "reached the end without faulting");
 }
 
+// --- queueing a line for a later tick ---------------------------------------------------------
+
+//   light_cli's periodic task, declared here rather than included: it lives in the module's
+// private cli_private.h, and reaching across into a source directory for one prototype would be
+// worse than restating it. It is the other half of light_cli_queue_line() -- the half that
+// actually dispatches -- so nothing below can be tested without calling it
+extern uint8_t cli_task(struct light_application *app);
+
+static uint8_t tick(void)
+{
+        return cli_task(light_framework_get_root_application());
+}
+static void test_queue_line_runs_on_a_later_tick(void)
+{
+        record_reset();
+
+        //   QUEUEING IS NOT RUNNING, which is the entire point of this API. A console calling
+        // light_cli_run_line() directly runs the command inline, inside whatever task it was
+        // called from; queueing hands it to cli_task() so it lands on a scheduler tick of its own
+        CHECK(light_cli_queue_line(&cmd_test, (const uint8_t *)"echo queued"), "should queue");
+        CHECK(handler_calls == 0, "queueing a line must not dispatch it");
+
+        CHECK(tick() == LF_STATUS_RUN, "the task must keep running");
+        CHECK(handler_calls == 1, "expected 1 handler call after the tick, got %d", handler_calls);
+        CHECK(seen_command && !strcmp((const char *)seen_command, "echo"), "wrong command dispatched");
+        CHECK(seen_argc == 1 && seen_arg[0] && !strcmp((const char *)seen_arg[0], "queued"),
+                        "the queued line's argument did not survive the queue");
+}
+static void test_queue_line_runs_one_line_per_tick(void)
+{
+        //   THE CASE THE ASYNC REWRITE EXISTS FOR. cli_task() is a periodic task now, and the
+        // guarantee that makes that safe is that it does at most ONE unit of work per call: a
+        // session queueing lines faster than they run must not get them all dispatched
+        // back-to-back inside a single tick, because every other periodic task -- on a
+        // single-core target, including the one draining log output -- runs only between ticks
+        record_reset();
+
+        CHECK(light_cli_queue_line(&cmd_test, (const uint8_t *)"echo one"), "should queue");
+        CHECK(light_cli_queue_line(&cmd_test, (const uint8_t *)"echo two"), "should queue");
+        CHECK(light_cli_queue_line(&cmd_test, (const uint8_t *)"echo three"), "should queue");
+        CHECK(handler_calls == 0, "queueing three lines must not dispatch any of them");
+
+        tick();
+        CHECK(handler_calls == 1, "tick 1 should run exactly one line, ran %d", handler_calls);
+        CHECK(seen_argc == 1 && !strcmp((const char *)seen_arg[0], "one"), "lines must run in order");
+        tick();
+        CHECK(handler_calls == 2, "tick 2 should have run a second line, total %d", handler_calls);
+        CHECK(seen_argc == 1 && !strcmp((const char *)seen_arg[0], "two"), "lines must run in order");
+        tick();
+        CHECK(handler_calls == 3, "tick 3 should have run a third line, total %d", handler_calls);
+        CHECK(seen_argc == 1 && !strcmp((const char *)seen_arg[0], "three"), "lines must run in order");
+}
+static void test_cli_task_is_idle_with_an_empty_queue(void)
+{
+        record_reset();
+
+        //   an empty queue is the normal state -- every tick of every application that never
+        // queues anything. It must be cheap and it must not be mistaken for a reason to stop
+        CHECK(tick() == LF_STATUS_RUN, "an empty queue is not a reason to shut down");
+        CHECK(handler_calls == 0, "nothing should have been dispatched");
+}
+static void test_queue_line_reports_a_full_queue(void)
+{
+        record_reset();
+
+        //   the queue is a fixed-size ring with no heap behind it, so it CAN fill. Refusing is
+        // the only correct answer -- blocking would stall whichever task is feeding it, and
+        // overwriting would silently discard a command the user typed
+        uint32_t queued = 0;
+        for(uint32_t i = 0; i < LIGHT_STREAM_MQUEUE_DEPTH; i++) {
+                if(light_cli_queue_line(&cmd_test, (const uint8_t *)"echo filler"))
+                        queued++;
+        }
+        CHECK(queued == LIGHT_STREAM_MQUEUE_DEPTH, "expected to queue %d lines, queued %u",
+                        LIGHT_STREAM_MQUEUE_DEPTH, queued);
+        CHECK(!light_cli_queue_line(&cmd_test, (const uint8_t *)"echo overflow"),
+                        "a full queue must refuse the line");
+
+        //   and REFUSING MEANS QUEUEING NOTHING: drain the lot and confirm the count is what was
+        // accepted, not one more, and that the refused line is nowhere in it
+        for(uint32_t i = 0; i < LIGHT_STREAM_MQUEUE_DEPTH + 2; i++)
+                tick();
+        CHECK(handler_calls == LIGHT_STREAM_MQUEUE_DEPTH,
+                        "expected %d lines to run, %d did", LIGHT_STREAM_MQUEUE_DEPTH, handler_calls);
+        CHECK(seen_argc == 1 && !strcmp((const char *)seen_arg[0], "filler"),
+                        "the refused line ran anyway: last argument was '%s'",
+                        seen_argc ? (const char *)seen_arg[0] : "(none)");
+}
+static void test_queue_line_truncates_an_over_long_line(void)
+{
+        //   TRUNCATED, NOT REFUSED. A queue slot is LIGHT_STREAM_MAX_MSG_LENGTH bytes and the
+        // line is snprintf'd into it, so a longer line loses its tail and still runs -- the same
+        // thing that happens to an over-long log message on this queue type. Worth pinning
+        // because it is the one input where "returned true" does not mean "ran what you asked"
+        record_reset();
+
+        uint8_t big[LIGHT_STREAM_MAX_MSG_LENGTH + 64];
+        memset(big, 'a', sizeof(big) - 1);
+        big[sizeof(big) - 1] = '\0';
+        memcpy(big, "echo ", 5);
+
+        CHECK(light_cli_queue_line(&cmd_test, big), "an over-long line is truncated, not refused");
+        tick();
+        CHECK(handler_calls == 1, "the truncated line should still have run");
+        //   the slot holds MAX_MSG_LENGTH bytes including the terminator, and "echo " is the
+        // first five of them -- so the argument is what is left of that budget
+        CHECK(seen_argc == 1 && strlen((const char *)seen_arg[0]) == LIGHT_STREAM_MAX_MSG_LENGTH - 1 - 5,
+                        "expected the argument truncated to %d characters, got %u",
+                        LIGHT_STREAM_MAX_MSG_LENGTH - 1 - 5,
+                        seen_argc ? (unsigned)strlen((const char *)seen_arg[0]) : 0u);
+}
+static void test_queue_line_survives_a_failing_command(void)
+{
+        //   a queued command that fails must cost its own line and nothing else. cli_task()
+        // deliberately ignores what light_cli_run_line() returns: an interactive session whose
+        // typo shut the process down would be unusable, and a queued line has no caller left to
+        // report a status to anyway
+        record_reset();
+
+        CHECK(light_cli_queue_line(&cmd_test, (const uint8_t *)"fail"), "should queue");
+        CHECK(light_cli_queue_line(&cmd_test, (const uint8_t *)"echo after"), "should queue");
+
+        CHECK(tick() == LF_STATUS_RUN, "a failing queued command must not stop the task");
+        CHECK(handler_calls == 1, "the failing handler should have been called");
+        CHECK(tick() == LF_STATUS_RUN, "the task must keep running");
+        CHECK(handler_calls == 2, "the line after the failure should still have run");
+        CHECK(seen_command && !strcmp((const char *)seen_command, "echo"),
+                        "the line after the failure did not run");
+}
+static void test_queue_line_refuses_a_null_line(void)
+{
+        //   NULL is a case to answer rather than one to crash on: "queue whatever the console
+        // just read" is the natural way to call this, and a read that failed is the obvious way
+        // to arrive with nothing. It used to reach snprintf("%s", NULL), which glibc survives by
+        // printing "(null)" and the Windows CRT does not survive at all
+        record_reset();
+
+        CHECK(!light_cli_queue_line(&cmd_test, NULL), "a NULL line must be refused");
+        CHECK(tick() == LF_STATUS_RUN, "the task must be unaffected");
+        CHECK(handler_calls == 0, "refusing must queue nothing");
+}
+static void test_queue_line_defers_validation_to_the_tick(void)
+{
+        //   queueing does not check the root -- there is no caller standing by to tell, and the
+        // check belongs where the dispatch happens. So an unrunnable line queues successfully and
+        // is rejected a tick later, which must cost the line and not the task
+        record_reset();
+
+        CHECK(light_cli_queue_line(&root_command, (const uint8_t *)"echo x"),
+                        "queueing does not validate the root");
+        CHECK(tick() == LF_STATUS_RUN, "the task must survive a line it cannot run");
+        CHECK(handler_calls == 0, "an unnamed root cannot dispatch anything");
+}
+
 static const struct { const char *name; void (*fn)(void); } test_cases[] = {
         { "tokenize_splits_on_whitespace",            test_tokenize_splits_on_whitespace },
         { "tokenize_collapses_runs_of_whitespace",    test_tokenize_collapses_runs_of_whitespace },
@@ -413,6 +574,14 @@ static const struct { const char *name; void (*fn)(void); } test_cases[] = {
         { "run_line_rejects_a_line_it_cannot_tokenize", test_run_line_rejects_a_line_it_cannot_tokenize },
         { "run_line_rejects_bad_arguments",           test_run_line_rejects_bad_arguments },
         { "help_prints_every_command_shape",          test_help_prints_every_command_shape },
+        { "queue_line_runs_on_a_later_tick",          test_queue_line_runs_on_a_later_tick },
+        { "queue_line_runs_one_line_per_tick",        test_queue_line_runs_one_line_per_tick },
+        { "cli_task_is_idle_with_an_empty_queue",     test_cli_task_is_idle_with_an_empty_queue },
+        { "queue_line_reports_a_full_queue",          test_queue_line_reports_a_full_queue },
+        { "queue_line_truncates_an_over_long_line",   test_queue_line_truncates_an_over_long_line },
+        { "queue_line_survives_a_failing_command",    test_queue_line_survives_a_failing_command },
+        { "queue_line_refuses_a_null_line",           test_queue_line_refuses_a_null_line },
+        { "queue_line_defers_validation_to_the_tick", test_queue_line_defers_validation_to_the_tick },
 };
 #define TEST_CASE_COUNT (sizeof(test_cases) / sizeof(test_cases[0]))
 
