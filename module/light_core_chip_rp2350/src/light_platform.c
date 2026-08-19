@@ -87,6 +87,80 @@ static void _core1_drain_panic(void)
         _panic_printed = true;
 }
 
+//   CONSOLE INPUT, read here because input is USB traffic like any other: tud_cdc_read() on
+// core 0 would be exactly the cross-core access this worker exists to prevent. Characters are
+// accumulated into a line with echo and backspace handled at this end -- echo has to happen
+// the moment a key is struck to feel like a terminal at all, and only this core may write --
+// and completed lines cross to core 0 through a lock-protected mqueue, the same primitive the
+// log queues already cross cores with (its light_mutex_t is a hardware spinlock on RP2).
+//   an application drains it with light_core_port_console_take_line(), typically feeding
+// light_cli_queue_line() one line per tick -- see cli_task()'s scheduling-order comment for
+// why one per tick is the intended pace.
+static struct light_stream_mqueue _console_queue;
+static light_mutex_t _console_lock;
+static void _console_poll(void)
+{
+        static uint8_t line[LIGHT_STREAM_MAX_MSG_LENGTH];
+        static uint16_t length;
+
+        while(tud_cdc_available()) {
+                uint8_t ch;
+                if(tud_cdc_read(&ch, 1) != 1)
+                        return;
+                switch(ch) {
+                case '\r':
+                case '\n':
+                        // CRLF handled by the '\n' arriving with nothing accumulated and
+                        // queueing nothing -- a blank line is not a command
+                        printf("\r\n");
+                        if(length > 0) {
+                                line[length] = '\0';
+                                //   checked-then-added rather than add_fast() alone, because
+                                // mqueue_claim_slot() BLOCKS when the queue is full -- and a
+                                // human typing 64 lines ahead of a stalled drain should lose a
+                                // line, not wedge the core that owns the USB stack
+                                if(light_stream_mqueue_is_full(&_console_queue))
+                                        printf("(console line dropped: queue full)\r\n");
+                                else
+                                        light_stream_mqueue_add_fast(&_console_lock,
+                                                        &_console_queue, line);
+                                length = 0;
+                        }
+                        break;
+                case 0x08:      // backspace
+                case 0x7f:      // DEL, which most terminals send for the backspace key
+                        if(length > 0) {
+                                length--;
+                                printf("\b \b");
+                        }
+                        break;
+                default:
+                        // printable ASCII only: control characters and high bytes are not
+                        // things a command line here can mean, and echoing them garbles the
+                        // terminal doing the typing
+                        if(ch >= 0x20 && ch <= 0x7e && length < sizeof(line) - 1) {
+                                line[length++] = ch;
+                                putchar(ch);
+                        }
+                        break;
+                }
+        }
+}
+
+//   core 0's half of the console: pops one completed line, or answers false when none is
+// waiting. The copy out is what lets the caller hold the line across its own tick while this
+// core keeps reading the next one into the queue
+bool light_core_port_console_take_line(uint8_t *out, uint16_t out_size)
+{
+        struct light_message message;
+        if(!out || out_size == 0)
+                return false;
+        if(!light_stream_mqueue_try_get(&_console_lock, &_console_queue, &message))
+                return false;
+        snprintf((char *)out, out_size, "%s", message.text);
+        return true;
+}
+
 static void _core1_usb_worker(void)
 {
         tusb_init();
@@ -104,8 +178,31 @@ static void _core1_usb_worker(void)
                 //   the queues do not exist until light_stream_setup() runs on core 0, which
                 // happens after this core is already pumping. Until then this loop exists
                 // purely to carry enumeration through stdio_init_all()'s connect wait
-                if(light_stream_drain_ready)
+                if(light_stream_drain_ready) {
                         light_stream_service_message_queues();
+                        _console_poll();
+                }
+        }
+        //   drain what remains before finishing: the stop signal arrives from
+        // light_stream_shutdown() immediately after the module-unload logging was queued, and
+        // this core is the only one allowed to print it. Bounded the same way the
+        // single-threaded shutdown drain is, and for the same reason -- a hang at exit is
+        // worse than a dropped line. The tud_task() pump afterwards is what moves the bytes
+        // off the device; returning the instant the queues empty would abandon the tail in
+        // the CDC FIFO, exactly as _core1_drain_panic() explains
+        for(uint32_t i = 0; i < LIGHT_STREAM_MAX_STREAMS * LIGHT_STREAM_MQUEUE_DEPTH; i++) {
+                if(!light_stream_drain_ready || light_stream_all_queues_empty())
+                        break;
+                light_stream_service_message_queues();
+                //   pumped between messages, exactly as the main loop above does. Without this
+                // the back-to-back writes fill the CDC FIFO faster than anything empties it,
+                // and stdio_usb's per-write timeout starts truncating -- measured: the last
+                // four module-unload lines each arrived cut off mid-word
+                tud_task();
+        }
+        for(uint32_t i = 0; i < 100; i++) {
+                tud_task();
+                sleep_ms(1);
         }
         light_core_port_worker_signal_finished();
 }
@@ -179,6 +276,9 @@ void light_core_port_abort(void)
 void light_platform_init()
 {
 #if LIGHT_PLATFORM_USB_ON_CORE1
+        // before the worker exists, so it never sees a half-made queue
+        light_mutex_init(&_console_lock);
+        light_stream_mqueue_init(&_console_queue);
         //   before stdio_init_all(), not after. With PICO_STDIO_USB_ENABLE_IRQ_BACKGROUND_TASK
         // disabled, nothing in the SDK pumps tud_task() -- and stdio_usb_init()'s connect wait
         // (PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS) only sleeps and re-checks, so enumeration

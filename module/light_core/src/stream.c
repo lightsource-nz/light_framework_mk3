@@ -191,7 +191,19 @@ void light_stream_setup()
 }
 void light_stream_shutdown()
 {
-#if LIGHT_PLATFORM_HAS_C11_THREADS
+#if LIGHT_PLATFORM_USB_ON_CORE1
+        //   FIRST in the chain, for the same reason as in light_stream_setup(): this
+        // configuration sets HAS_MULTICORE_WORKER=0, so without its own branch it would fall
+        // through to the single-threaded #else below -- which drains the queues from core 0,
+        // and on this arrangement a core 0 drain is a stdio write through a USB stack that
+        // core 1 owns. The gap never showed because no application on this configuration had
+        // ever returned from its run loop before.
+        //   stop/join only: the worker drains what remains and pumps TinyUSB long enough for
+        // it to actually leave the device before signalling finished (see _core1_usb_worker),
+        // so the module-unload logging emitted just before this call still gets out
+        light_core_port_worker_signal_stop();
+        light_core_port_worker_join();
+#elif LIGHT_PLATFORM_HAS_C11_THREADS
         atomic_store(&worker_should_stop, true);
         thrd_join(worker_thread, NULL);
 #elif LIGHT_PLATFORM_HAS_MULTICORE_WORKER
@@ -220,6 +232,13 @@ void light_stream_shutdown()
 // servicing past their stop signal, and light_stream_shutdown() uses it on the single-threaded
 // path where there is no worker to do the draining
 static bool _all_stream_queues_empty()
+{
+        return light_stream_all_queues_empty();
+}
+//   the public spelling, for drains that live outside this file: the USB_ON_CORE1 port's
+// core 1 worker runs the same drain-past-stop loop the workers above do, but from platform
+// code, where the static above is out of reach
+bool light_stream_all_queues_empty()
 {
         for(uint8_t i = 0; i < streams_defined_count; i++) {
                 // an INPUT stream has no queue anything ever writes to; skip it rather than
@@ -307,22 +326,38 @@ void light_stream_service_message_queues()
                         continue;
                 struct light_stream_mqueue *queue = light_stream_get_queue(stream);
                 if(!light_stream_mqueue_is_empty(queue)) {
-                        // processed directly out of the queue slot, under a single lock hold,
-                        // rather than copying the (~256-byte) struct light_message out to a local
-                        // first -- this runs on platforms where the calling stack is only ~2KB
-                        // total (e.g. the RP2040 core1 worker), where a message-sized local on top
-                        // of the rest of this call chain (plus whatever an interrupt handler adds
-                        // on the same stack) is a real overflow risk
+                        //   copied to a STATIC bounce buffer under the lock, and handed to the
+                        // handler with the lock RELEASED. Static rather than a stack local
+                        // because this runs on platforms where the calling stack is only ~2KB
+                        // total (e.g. the RP2 core1 worker), where a message-sized local on top
+                        // of the rest of this call chain is a real overflow risk. And not
+                        // handler-under-lock, which is what this used to do: light_mutex_t is a
+                        // hardware spinlock on the embedded ports, taken with IRQs DISABLED on
+                        // the calling core -- and the stdout handler is a USB CDC write whose
+                        // FIFO only drains by that core's USB IRQ. Held across the write, the
+                        // lock starved the very transfer it was waiting on: measured on the
+                        // RP2350 touch board, any burst deep enough to fill the 512-byte CDC
+                        // FIFO (the shutdown path's module-unload logging, reliably) had every
+                        // later message truncated to the space left at entry, at any stdout
+                        // timeout, deterministically enough to be byte-identical across runs.
+                        //   one static is safe because exactly one drain context exists per
+                        // configuration: the C11 worker thread, the core 1 worker, or the
+                        // core 0 periodic task -- never two at once (see light_stream_setup())
+                        static uint8_t drain_text[LIGHT_STREAM_MAX_MSG_LENGTH];
+                        bool drained = false;
                         light_mutex_do_lock(&stream->lock);
                         if(!light_stream_mqueue_is_empty(queue)) {
                                 struct light_message *message = light_stream_mqueue_peek(queue);
                                 // both message types are fully formatted by the time they're queued
                                 // (see light_stream_mqueue_add_fast()/_add_faster()), so there's no
                                 // longer a distinction to make here based on message->flags
-                                stream->handler(stream, message->text);
+                                memcpy(drain_text, message->text, LIGHT_STREAM_MAX_MSG_LENGTH);
                                 light_stream_mqueue_advance(queue);
+                                drained = true;
                         }
                         light_mutex_do_unlock(&stream->lock);
+                        if(drained)
+                                stream->handler(stream, drain_text);
                 }
         }
 }

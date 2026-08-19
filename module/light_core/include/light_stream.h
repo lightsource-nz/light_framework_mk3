@@ -171,6 +171,10 @@ extern void light_stream_flush();
 // USB worker is already running before setup is reached, and must not touch a queue that does
 // not exist yet
 extern volatile bool light_stream_drain_ready;
+//   true when every output stream's queue is empty -- the termination test for a drain loop.
+// Public for the same external drains light_stream_drain_ready serves: the USB_ON_CORE1 core 1
+// worker drains what remains after its stop signal, exactly as the in-file workers do
+extern bool light_stream_all_queues_empty();
 extern void light_stream_init(struct light_stream *stream);
 static inline uint8_t light_stream_get_mode(struct light_stream *stream)
 {

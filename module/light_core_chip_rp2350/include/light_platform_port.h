@@ -25,4 +25,15 @@ extern void light_core_port_abort(void);
 #define LIGHT_PLATFORM_HAS_PWM 1
 #define LIGHT_PLATFORM_HAS_PWM_STREAM 1
 
+#if LIGHT_PLATFORM_USB_ON_CORE1
+#include <stdint.h>
+#include <stdbool.h>
+//   pops one completed console line into `out` (NUL-terminated, truncated to out_size), or
+// answers false when none is waiting. The lines are read, echoed and line-edited by the core 1
+// USB worker -- the only context allowed to touch the CDC endpoints -- and cross cores through
+// a lock-protected queue, so this is safe to call from any core 0 task. A console application
+// feeds each line to light_cli_queue_line(); see the worker's _console_poll() for the rest
+extern bool light_core_port_console_take_line(uint8_t *out, uint16_t out_size);
+#endif
+
 #endif
