@@ -26,6 +26,8 @@ jobs:
   host:
     name: host tests
     runs-on: ubuntu-latest
+    # see project-build.yml: a wedged step should fail in minutes, not eat the 6-hour default
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,6 +61,8 @@ jobs:
             target: demo_mini_stm32h7
             tree: build-mini-stm32h7
     runs-on: ubuntu-latest
+    # see project-build.yml: a wedged step should fail in minutes, not eat the 6-hour default
+    timeout-minutes: 20
     env:
       ARM_TOOLCHAIN_VERSION: 14.2.rel1
     steps:

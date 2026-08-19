@@ -67,6 +67,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    #   see project-build.yml: a wedged step should fail in minutes, not eat the 6-hour default.
+    # The longest legitimate run here is crossfire's ~3 minutes with a host Pico SDK build
+    timeout-minutes: 20
     steps:
       #   no `repository:`, so this checks out the CALLING repository -- inside a reusable
       # workflow, github.repository is still the caller's

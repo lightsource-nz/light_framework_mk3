@@ -77,6 +77,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    #   a normal leg takes 2-3 minutes; the longest legitimate run is a cold toolchain cache.
+    # Without this, a wedged step (an apt mirror hang stalled three crossfire legs at 'install
+    # build tools' on 2026-08-19) burns the 6-hour default per leg before GitHub kills it
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
