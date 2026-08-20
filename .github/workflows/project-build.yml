@@ -54,6 +54,9 @@ on:
       light_display:
         type: boolean
         default: false
+      light_ui:
+        type: boolean
+        default: false
       light_usb:
         type: boolean
         default: false
@@ -99,6 +102,12 @@ jobs:
         with:
           repository: lightsource-nz/light_display
           path: light_display
+
+      - uses: actions/checkout@v4
+        if: inputs.light_ui
+        with:
+          repository: lightsource-nz/light_ui
+          path: light_ui
 
       - uses: actions/checkout@v4
         if: inputs.light_usb

@@ -39,6 +39,10 @@ on:
         description: 'check out the light_display group beside the project'
         type: boolean
         default: false
+      light_ui:
+        description: 'check out the light_ui group beside the project'
+        type: boolean
+        default: false
       light_usb:
         description: 'check out the light_usb group beside the project'
         type: boolean
@@ -90,6 +94,12 @@ jobs:
         with:
           repository: lightsource-nz/light_display
           path: light_display
+
+      - uses: actions/checkout@v4
+        if: inputs.light_ui
+        with:
+          repository: lightsource-nz/light_ui
+          path: light_ui
 
       - uses: actions/checkout@v4
         if: inputs.light_usb
