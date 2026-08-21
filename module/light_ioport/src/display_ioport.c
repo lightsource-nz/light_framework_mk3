@@ -335,3 +335,28 @@ bool light_ioport_write_register(struct io_context *io, uint8_t reg,
                 return false;
         }
 }
+// the 16-bit-address pair -- see the header for what devices these exist for and how the
+// zero-length write differs from the 8-bit one. dispatch mirrors the 8-bit pair exactly
+bool light_ioport_read_register16(struct io_context *io, uint16_t reg, uint8_t *out, uint32_t len)
+{
+        light_trace("read register16: 0x%x, %d bytes", reg, len);
+        switch(io->io_type) {
+        case IO_I2C:
+                return _platform_i2c_read_register16(io, reg, out, len);
+        default:
+                light_warn("read not implemented for I/O context type code: 0x%x", io->io_type);
+                return false;
+        }
+}
+bool light_ioport_write_register16(struct io_context *io, uint16_t reg,
+                                                const uint8_t *data, uint32_t len)
+{
+        light_trace("write register16: 0x%x, %d bytes", reg, len);
+        switch(io->io_type) {
+        case IO_I2C:
+                return _platform_i2c_write_register16(io, reg, data, len);
+        default:
+                light_warn("register write not implemented for I/O context type code: 0x%x", io->io_type);
+                return false;
+        }
+}

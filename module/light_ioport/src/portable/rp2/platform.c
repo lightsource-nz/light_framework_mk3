@@ -494,6 +494,42 @@ bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint
                                         _i2c_timeout_us(len));
         return written == (int)len;
 }
+//   the 16-bit-address pair: same write-then-read / write-then-write shapes as the 8-bit
+// functions above, with a two-byte big-endian address on the wire (the convention of every
+// 16-bit-register I2C device met so far -- the CST328 is the first)
+bool _platform_i2c_read_register16(struct io_context *io, uint16_t reg, uint8_t *out, uint32_t len)
+{
+        i2c_inst_t *port = _i2c_select(io->port_id);
+        uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
+        int written = i2c_write_timeout_us(port, io->io.i2c.addr, addr, 2, true,
+                                        _i2c_timeout_us(2));
+        if(written < 0)
+                return false;
+        int read = i2c_read_timeout_us(port, io->io.i2c.addr, out, len, false,
+                                        _i2c_timeout_us(len));
+        return read == (int)len;
+}
+bool _platform_i2c_write_register16(struct io_context *io, uint16_t reg, const uint8_t *data, uint32_t len)
+{
+        i2c_inst_t *port = _i2c_select(io->port_id);
+        uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
+        //   len == 0 sends the address as a COMPLETE transaction, stop and all -- the
+        // opposite of the 8-bit write's held-START poke above, and deliberately so: on the
+        // devices this variant exists for, an address-only write IS a command (the CST328
+        // takes its mode changes this way), and the reference drivers issue it with a STOP
+        if(!len) {
+                int sent = i2c_write_timeout_us(port, io->io.i2c.addr, addr, 2, false,
+                                        _i2c_timeout_us(2));
+                return sent == 2;
+        }
+        int written = i2c_write_timeout_us(port, io->io.i2c.addr, addr, 2, true,
+                                        _i2c_timeout_us(2));
+        if(written < 0)
+                return false;
+        written = i2c_write_timeout_us(port, io->io.i2c.addr, data, len, false,
+                                        _i2c_timeout_us(len));
+        return written == (int)len;
+}
 // RP2040 I2C-over-DMA needs the target address folded into each FIFO command word rather
 // than a simple buffer handoff (not exposed as a plain public API by hardware_i2c), which is
 // meaningfully more involved than the SPI case below. rather than build that out now, this is

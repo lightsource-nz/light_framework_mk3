@@ -156,6 +156,21 @@ extern bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8
 // convention instead. only the I2C path is implemented; SPI returns false
 extern bool light_ioport_write_register(struct io_context *io, uint8_t reg,
                                                 const uint8_t *data, uint32_t len);
+//   the 16-BIT-ADDRESS variants of the register pair above, for devices whose register
+// space is addressed by two bytes rather than one (the CST328 touch controller is the
+// first: its registers live at addresses like 0xD000/0xD101, sent big-endian on the
+// wire). NOT a general replacement for the 8-bit pair -- a device speaks one convention
+// or the other, and sending two address bytes to an 8-bit-register device writes the
+// second one into a register.
+//   write with len == 0 sends the bare 16-bit address as a complete transaction, STOP
+// included. That is a real operation on these devices, not a degenerate case: the CST328
+// takes its mode changes as address-only writes (the address IS the command), which is
+// also why the 8-bit write's zero-length behaviour (address under a held START, no STOP)
+// is not what is wanted here. only the I2C path is implemented; SPI returns false
+extern bool light_ioport_read_register16(struct io_context *io, uint16_t reg,
+                                                uint8_t *out, uint32_t len);
+extern bool light_ioport_write_register16(struct io_context *io, uint16_t reg,
+                                                const uint8_t *data, uint32_t len);
 // non-blocking twin of send_data_burst(): kicks the transfer off (DMA-backed where the
 // platform/interface supports it) and returns immediately. 'data' must stay valid and
 // unmodified until burst_is_complete() reports true -- it's read asynchronously, possibly
