@@ -273,6 +273,15 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                 case TOKEN_OPT_L:
                         if(state == STATE_MATCH) {
                                 invoke->target = context;
+                                //   to_bind is initialised on EVERY transition into STATE_BIND,
+                                // not only the one in the CMDARG case above. This transition
+                                // left it holding stack garbage, so a command whose first
+                                // bindable token was an option -- `font add --local-file <path>`
+                                // -- counted its positionals against an arbitrary limit: a
+                                // spurious "excess arguments" warning whenever the garbage
+                                // happened to be <= 0, which is why the same line warned from
+                                // `crush console` but not from a shell
+                                to_bind = context->arg_max;
                                 state = STATE_BIND;
                         }
                         struct light_cli_option_value *optval = &invoke->option[invoke->option_count++];
