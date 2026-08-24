@@ -423,6 +423,15 @@ void _platform_signal_reset(struct io_context *io)
         gpio_put(io->pin_reset, true);
         sleep_ms(100);
 }
+//   active-low, which is what the pulse above encodes in its middle phase: the line rests high
+// and the chip is held in reset while it is driven low. Stated once here so a caller can say
+// what it MEANS rather than which level to drive
+void _platform_set_reset(struct io_context *io, bool asserted)
+{
+        if(io->pin_reset == LIGHT_IOPORT_PIN_NONE)
+                return;
+        gpio_put(io->pin_reset, !asserted);
+}
 
 // SSD1306/SH1106-family I2C control byte, sent as the first byte of every transaction:
 // bit 7 (Co) = 0 means every byte from here to the STOP condition is of the same kind (no

@@ -266,6 +266,10 @@ void light_ioport_signal_reset(struct io_context *io)
 {
         _platform_signal_reset(io);
 }
+void light_ioport_set_reset(struct io_context *io, bool asserted)
+{
+        _platform_set_reset(io, asserted);
+}
 uint32_t light_ioport_set_spi_clock(struct io_context *io, uint32_t hz)
 {
         switch(io->io_type) {

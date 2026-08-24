@@ -49,6 +49,11 @@ void _platform_signal_reset(struct io_context *io)
 {
         light_debug("chip reset signaled on port id 0x%x", io->port_id);
 }
+void _platform_set_reset(struct io_context *io, bool asserted)
+{
+        light_debug("chip reset %s on port id 0x%x",
+                        asserted ? "asserted" : "released", io->port_id);
+}
 uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz)
 {
         // no peripheral to re-clock on the host; report the request back so callers that

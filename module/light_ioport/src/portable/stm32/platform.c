@@ -613,6 +613,13 @@ void _platform_signal_reset(struct io_context *io)
         _gpio_write(io->pin_reset, true);
         light_platform_sleep_ms(120);
 }
+// active-low, matching the pulse above: driven low holds the chip in reset
+void _platform_set_reset(struct io_context *io, bool asserted)
+{
+        if(io->pin_reset == PIN_NONE)
+                return;
+        _gpio_write(io->pin_reset, !asserted);
+}
 
 // --- spi slave --------------------------------------------------------------------------------
 

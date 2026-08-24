@@ -13,6 +13,8 @@ extern uint32_t _platform_spi_slave_read_available(struct io_context *io, uint8_
 extern void _platform_pio_spi4_port_init(struct io_context *io);
 
 extern void _platform_signal_reset(struct io_context *io);
+// the non-blocking twin -- one edge, no delay. see light_ioport_set_reset()
+extern void _platform_set_reset(struct io_context *io, bool asserted);
 extern uint32_t _platform_spi_set_clock(struct io_context *io, uint32_t hz);
 // applies io->io.spi.mode to the peripheral; valid for master and slave contexts alike
 extern void _platform_spi_set_mode(struct io_context *io);

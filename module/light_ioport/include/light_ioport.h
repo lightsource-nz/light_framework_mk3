@@ -192,6 +192,16 @@ extern bool light_ioport_burst_is_complete(struct io_context *io);
 //   only IO_SPI_SLAVE implements this; every other io_type is a master and returns 0.
 extern uint32_t light_ioport_read_available(struct io_context *io, uint8_t *out, uint32_t max);
 extern void light_ioport_signal_reset(struct io_context *io);
+//   the same reset line, driven one edge at a time and WITHOUT sleeping. signal_reset() above
+// is a bring-up routine: it holds the line and blocks for the chip's boot time, which is fine
+// during module load and ruinous anywhere else -- called from a periodic task it stops the whole
+// scheduler loop, display and all, for as long as the pulse lasts.
+//   a driver that has to reset a chip while the application is running uses this instead and
+// times the phases against its own poll, staying off the bus until the chip is back. `asserted`
+// means "hold this chip in reset", so the polarity of the actual pin lives here rather than in
+// every caller. A context set up with LIGHT_IOPORT_PIN_NONE has no line to drive and this does
+// nothing, exactly as signal_reset() does nothing for it
+extern void light_ioport_set_reset(struct io_context *io, bool asserted);
 // re-clocks the SPI peripheral this context talks through, returning the rate actually
 // achieved (the divider is integer, so it is rarely exactly what was asked for).
 //
