@@ -468,6 +468,28 @@ void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, u
         i2c_write_timeout_us(port, io->io.i2c.addr, &control, 1, true, _i2c_timeout_us(1));
         i2c_write_timeout_us(port, io->io.i2c.addr, data, len, false, _i2c_timeout_us(len));
 }
+//   a held-START write that FAILS leaves the peripheral mid-transfer as far as the SDK's
+// bookkeeping is concerned. i2c_write_blocking_internal() ends with
+//
+//      i2c->restart_on_next = nostop;
+//
+// unconditionally -- the abort path falls through to it just as the success path does -- and
+// the read or write that would normally consume that flag never runs when we bail out here.
+//
+//   the flag then belongs to the next user of the PERIPHERAL, not the next user of this
+// io_context, and those are not the same thing: an io_context carries a target ADDRESS, so two
+// chips on one port have two contexts and one i2c_inst_t between them. On the touch boards that
+// is the CST816T at 0x15 and the QMI8658 at 0x6B sharing I2C1. The IMU's next transfer then
+// opens with a spurious RESTART on an idle bus, and a touch controller that merely napped has
+// taken the IMU down with it -- a failure that shows up in the device that did nothing wrong.
+//
+//   clearing it costs one store, and it is the only thing standing between one device's failed
+// read and every other device on the port. Only the nostop=true paths need it: a transfer
+// issued with nostop=false already stores false here whether it aborted or not
+static void _i2c_clear_restart(i2c_inst_t *port)
+{
+        port->restart_on_next = false;
+}
 // write-then-read: write the register address (nostop, keeps the START condition open),
 // then read the response as a separate transfer that issues its own STOP. this is plain
 // I2C register access (no SSD1306/SH1106-style control byte -- that convention is
@@ -478,8 +500,10 @@ bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *ou
         i2c_inst_t *port = _i2c_select(io->port_id);
         int written = i2c_write_timeout_us(port, io->io.i2c.addr, &reg, 1, true,
                                         _i2c_timeout_us(1));
-        if(written < 0)
+        if(written < 0) {
+                _i2c_clear_restart(port);
                 return false;
+        }
         int read = i2c_read_timeout_us(port, io->io.i2c.addr, out, len, false,
                                         _i2c_timeout_us(len));
         return read == (int)len;
@@ -492,13 +516,22 @@ bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint
         i2c_inst_t *port = _i2c_select(io->port_id);
         int written = i2c_write_timeout_us(port, io->io.i2c.addr, &reg, 1, true,
                                         _i2c_timeout_us(1));
-        if(written < 0)
+        if(written < 0) {
+                _i2c_clear_restart(port);
                 return false;
+        }
         // a zero-length write is a bare register-address poke, which is how some devices are
         // probed for an ACK -- the address write above already did it, so there is nothing
         // further to send, and issuing a 0-byte transfer would leave the START unterminated
-        if(!len)
+        //   this path SUCCEEDS with the START still held, so it leaks restart_on_next the same
+        // way a failure does. Cleared for the same reason: whatever this context left open is
+        // not the next context's business. No caller in this codebase uses len == 0 on the
+        // 8-bit write today -- the CST328's address-only writes go through the 16-bit twin,
+        // which issues its own STOP -- so this is a guard on a path waiting to be used
+        if(!len) {
+                _i2c_clear_restart(port);
                 return true;
+        }
         written = i2c_write_timeout_us(port, io->io.i2c.addr, data, len, false,
                                         _i2c_timeout_us(len));
         return written == (int)len;
@@ -512,8 +545,10 @@ bool _platform_i2c_read_register16(struct io_context *io, uint16_t reg, uint8_t 
         uint8_t addr[2] = { (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF) };
         int written = i2c_write_timeout_us(port, io->io.i2c.addr, addr, 2, true,
                                         _i2c_timeout_us(2));
-        if(written < 0)
+        if(written < 0) {
+                _i2c_clear_restart(port);
                 return false;
+        }
         int read = i2c_read_timeout_us(port, io->io.i2c.addr, out, len, false,
                                         _i2c_timeout_us(len));
         return read == (int)len;
@@ -533,8 +568,10 @@ bool _platform_i2c_write_register16(struct io_context *io, uint16_t reg, const u
         }
         int written = i2c_write_timeout_us(port, io->io.i2c.addr, addr, 2, true,
                                         _i2c_timeout_us(2));
-        if(written < 0)
+        if(written < 0) {
+                _i2c_clear_restart(port);
                 return false;
+        }
         written = i2c_write_timeout_us(port, io->io.i2c.addr, data, len, false,
                                         _i2c_timeout_us(len));
         return written == (int)len;
