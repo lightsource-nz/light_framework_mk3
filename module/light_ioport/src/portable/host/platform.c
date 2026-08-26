@@ -86,6 +86,10 @@ bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint
 {
         return false;
 }
+bool _platform_i2c_write_register_byte(struct io_context *io, uint8_t reg, uint8_t value)
+{
+        return false;
+}
 bool _platform_i2c_read_register16(struct io_context *io, uint16_t reg, uint8_t *out, uint32_t len)
 {
         return false;

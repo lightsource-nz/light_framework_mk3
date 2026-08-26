@@ -536,6 +536,21 @@ bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint
                                         _i2c_timeout_us(len));
         return written == (int)len;
 }
+//   the strictly-framed single-transaction write: [reg][value] as ONE payload, so the wire
+// carries S, addr+W, reg, value, P with no repeated START in the middle. That is the whole
+// point of it existing beside the function above -- see light_ioport_write_register_byte().
+//   the two-byte scratch buffer is what the general write path avoids so as not to impose a
+// maximum length; here the length IS two by construction, so there is nothing to impose
+bool _platform_i2c_write_register_byte(struct io_context *io, uint8_t reg, uint8_t value)
+{
+        i2c_inst_t *port = _i2c_select(io->port_id);
+        uint8_t frame[2] = { reg, value };
+        int written = i2c_write_timeout_us(port, io->io.i2c.addr, frame, 2, false,
+                                        _i2c_timeout_us(2));
+        //   nostop=false above, so the transfer ends with its own STOP and leaves
+        // restart_on_next clear -- nothing to clean up on the failure path here
+        return written == 2;
+}
 //   the 16-bit-address pair: same write-then-read / write-then-write shapes as the 8-bit
 // functions above, with a two-byte big-endian address on the wire (the convention of every
 // 16-bit-register I2C device met so far -- the CST328 is the first)

@@ -156,6 +156,24 @@ extern bool light_ioport_read_register(struct io_context *io, uint8_t reg, uint8
 // convention instead. only the I2C path is implemented; SPI returns false
 extern bool light_ioport_write_register(struct io_context *io, uint8_t reg,
                                                 const uint8_t *data, uint32_t len);
+//   a register write sent as ONE transaction: S, addr+W, reg, value, P.
+//
+//   the pair above does NOT do this, and the difference is on the wire. It writes the register
+// address with nostop and the payload as a second transfer -- and pico-sdk sets
+// i2c->restart_on_next from that nostop, so the payload opens with a REPEATED START that
+// re-sends the device address. A device expecting a plain two-byte write sees that as a new
+// transaction and reads the payload as another register pointer: every write is acknowledged,
+// and nothing is ever stored.
+//
+//   measured on a HUSB238, whose documentation asks for exactly two bytes in one transaction.
+// Its SRC_PDO_SEL acknowledged five writes of five different values and read back 0x00 after
+// every one. Parts differ in how much framing they tolerate -- the QMI8658 on the touch board
+// has been written the other way since bring-up and works -- so this sits ALONGSIDE the pair
+// above rather than replacing it, and a driver picks the framing its part actually wants.
+//
+//   one byte of payload, deliberately: this exists for single-byte register writes that need
+// strict framing, and a length parameter would invite a caller to assume it scales to a burst
+extern bool light_ioport_write_register_byte(struct io_context *io, uint8_t reg, uint8_t value);
 //   the 16-BIT-ADDRESS variants of the register pair above, for devices whose register
 // space is addressed by two bytes rather than one (the CST328 touch controller is the
 // first: its registers live at addresses like 0xD000/0xD101, sent big-endian on the

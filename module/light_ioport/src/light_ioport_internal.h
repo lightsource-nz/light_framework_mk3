@@ -28,6 +28,8 @@ extern void _platform_i2c_send_data_byte(struct io_context *io, uint8_t data);
 extern void _platform_i2c_send_data_burst(struct io_context *io, const uint8_t *data, uint32_t len);
 extern bool _platform_i2c_read_register(struct io_context *io, uint8_t reg, uint8_t *out, uint32_t len);
 extern bool _platform_i2c_write_register(struct io_context *io, uint8_t reg, const uint8_t *data, uint32_t len);
+// the strictly-framed single-transaction twin -- see light_ioport_write_register_byte()
+extern bool _platform_i2c_write_register_byte(struct io_context *io, uint8_t reg, uint8_t value);
 // 16-bit-address variants -- see light_ioport.h for the convention differences (big-endian
 // address on the wire; write with len == 0 is a complete address-only transaction)
 extern bool _platform_i2c_read_register16(struct io_context *io, uint16_t reg, uint8_t *out, uint32_t len);

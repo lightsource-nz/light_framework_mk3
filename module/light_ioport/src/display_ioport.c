@@ -339,6 +339,20 @@ bool light_ioport_write_register(struct io_context *io, uint8_t reg,
                 return false;
         }
 }
+bool light_ioport_write_register_byte(struct io_context *io, uint8_t reg, uint8_t value)
+{
+        light_trace("write register byte: 0x%x = 0x%x", reg, value);
+        switch(io->io_type) {
+        case IO_I2C:
+                return _platform_i2c_write_register_byte(io, reg, value);
+        default:
+                // an I2C framing concern by definition -- SPI has no repeated START to get
+                // wrong, so there is nothing for this to mean there
+                light_warn("byte register write not implemented for I/O context type code: 0x%x",
+                                io->io_type);
+                return false;
+        }
+}
 // the 16-bit-address pair -- see the header for what devices these exist for and how the
 // zero-length write differs from the 8-bit one. dispatch mirrors the 8-bit pair exactly
 bool light_ioport_read_register16(struct io_context *io, uint16_t reg, uint8_t *out, uint32_t len)
