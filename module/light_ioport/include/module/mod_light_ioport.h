@@ -3,8 +3,9 @@
 
 #include <light.h>
 
-// TODO implement version fields properly
-#define LIGHT_IOPORT_VERSION_STR           "0.1.0"
+// the repository's version, derived from its git tags -- see light_project_version(LIGHT)
+#include <light_version.h>
+#define LIGHT_IOPORT_VERSION_STR           LIGHT_VERSION_STRING
 
 #define LIGHT_IOPORT_INFO_STR              "light_ioport v" LIGHT_IOPORT_VERSION_STR
 
