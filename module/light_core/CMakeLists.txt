@@ -28,6 +28,10 @@ target_sources(
         ${CMAKE_CURRENT_LIST_DIR}/src/light_common.c
         ${CMAKE_CURRENT_LIST_DIR}/src/list.c
         ${CMAKE_CURRENT_LIST_DIR}/src/stream.c
+        #   the command TREE, which is here rather than in light_cli because
+        # Light_Application_Define() declares an application's root command -- see
+        # include/light_command.h. light_cli keeps the command LINE.
+        ${CMAKE_CURRENT_LIST_DIR}/src/command.c
 )
 
 if(LIGHT_SYSTEM STREQUAL PICO_SDK)

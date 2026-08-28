@@ -128,11 +128,32 @@ struct light_static_object {
 // that happened to build at -O0. Light_Stream_Define() escaped it only because its pointer has
 // EXTERNAL linkage, which the compiler must emit -- which is why .light.stream was populated
 // in the very same images where .light.module was empty.
+//   THE COMMAND TREE, which an application's own definition below depends on.
+//
+//   every application that has a command line needs a root command named after itself: the
+// parser takes argv[0] as that root (see light_cli's handle_command_line()), so the name has to
+// match what the program is invoked as. Three applications wrote that declaration out by hand
+// and a fourth would have too -- and, worse, a LIBRARY module wanting to contribute a top-level
+// subcommand had nowhere to attach it, because Light_Command_Define() names its parent at
+// compile time and a library cannot name the application's symbol. LIGHT_COMMAND_APP_ROOT solves
+// that, and Light_Application_Root_Command() below is what it resolves to.
+//
+//   INCLUDED HERE, and here specifically: light_command.h builds on light_object and the static
+// object machinery defined above, and Light_Application_Define() immediately below expands
+// Light_Command_Static(). Both constraints are ordering constraints on this one line.
+//
+//   this used to live in light_cli.h, reached through a macro hook that light_cli overrode.
+// That was backwards -- it made light_core's application macro depend on a module that depends
+// on light_core -- so the tree moved down here where the rest of the framework's registries
+// live, and light_cli kept the command LINE: the tokenizer, the parser, dispatch and the queue.
+#include <light_command.h>
+
 #define Light_Application_Define(name, event, main, ...) \
         static struct light_application __this_app = Light_Application(#name, event, main, __VA_ARGS__); \
         static struct light_module __static_module *this_module = &__this_app.module; \
         struct light_module *mod_ ## name = &__this_app.module; \
-        struct light_application *this_app = &__this_app
+        struct light_application *this_app = &__this_app; \
+        Light_Application_Root_Command(name)
 
 #define to_module(ptr) container_of(ptr, struct light_module, header)
 #define to_application(ptr) container_of(ptr, struct light_application, header)

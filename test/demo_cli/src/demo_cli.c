@@ -20,7 +20,7 @@ Light_Command_Define(demo_command, CMD_ROOT, "demo_cli", "a simple command to de
         demo_do_cmd, 0, 2);
 // three distinctly-named options registered on the same command -- this shape (2+ options,
 // only some of which are actually passed on a given invocation) is what's needed to exercise
-// light_cli_find_command_option(): a lookup for any one option's value has to correctly skip
+// light_command_find_option(): a lookup for any one option's value has to correctly skip
 // over the *other* registered options rather than stopping at the first one that doesn't
 // match by name
 Light_Command_Option_Define(opt_demo_alpha, &demo_command, "alpha", 'a', "first demo option");
@@ -42,7 +42,7 @@ static struct light_cli_invocation_result demo_do_cmd(struct light_cli_invocatio
         const uint8_t *alpha = light_cli_invocation_get_option_value(invoke, "alpha");
         const uint8_t *beta = light_cli_invocation_get_option_value(invoke, "beta");
         // 'gamma' is intentionally never passed on the command line by the regression test --
-        // asserting it comes back unset is what catches light_cli_find_command_option()
+        // asserting it comes back unset is what catches light_command_find_option()
         // resolving to the wrong (but registered and bound) sibling option instead of correctly
         // reporting "not found"
         bool gamma_set = light_cli_invocation_option_is_set(invoke, "gamma");

@@ -1,192 +1,32 @@
 #ifndef _LIGHT_CLI_H
 #define _LIGHT_CLI_H
 
+/*
+ *  light_cli/light_cli.h
+ *  the command LINE: tokenizing it, parsing it against the command tree, dispatching it, and
+ *  the queue that lets a console feed lines in without running them inline.
+ *
+ *  the tree itself -- struct light_command, Light_Command_Define() and registration -- is in
+ *  light_core/light_command.h now, because Light_Application_Define() declares a root command
+ *  and so needs those macros before light_cli exists. See that file's own note. This header
+ *  includes it, so nothing that used to include only light_cli.h has to change.
+ */
+#include <light.h>
+#include <light_command.h>
+
 #if LIGHT_PLATFORM_HAS_C11_THREADS
 #include <threads.h>
 #endif
 #include <stdarg.h>
 
+// how far light_cli_dispatch_command_line() will follow a chain of Result_Alias() before giving
+// up. Purely a dispatch concern, so it stayed behind when the tree moved to light_command.h
 #define LIGHT_CLI_MAX_REF_DEPTH                 8
 
-#define to_command(ptr) container_of(ptr, struct light_command, header)
-
-#define LIGHT_CLI_MAX_SUBCOMMANDS               16
-#define LIGHT_CLI_MAX_OPTIONS                   16
-#define LIGHT_CLI_MAX_ARGS                      16
-#define LIGHT_CLI_OPTION_RAWVALUE_MAX           32
-#define LIGHT_CLI_OPTION_VALUE_MAX              32
-#define LIGHT_CLI_MAX_COMMAND_DEPTH             LIGHT_CLI_MAX_SUBCOMMANDS
-
-//   the command-line parser's own token limit, and so the largest argv a tokenized line may
-// produce. Public because light_cli_tokenize_line() fills such an array on the caller's stack,
-// and a caller sizing it independently would hand the parser more tokens than it reads
-#define LIGHT_CLI_MAX_TOKENS                    64
-
-#define LIGHT_CLI_OPTION                        0
-#define LIGHT_CLI_SWITCH                        1
-struct light_cli_option {
-        struct light_command *command;
-        uint8_t type;
-        const char code;
-        const uint8_t *name;
-        const uint8_t *description;
-};
-struct light_cli_invocation;
-struct light_command {
-        struct light_command *parent;
-        struct light_object header;
-        const uint8_t *short_name;
-        const uint8_t *full_name;
-        const uint8_t *description;
-        struct light_cli_invocation_result (*handler)(struct light_cli_invocation *);
-        uint8_t arg_min;
-        uint8_t arg_max;
-        uint8_t option_count;
-        uint8_t child_count;
-        struct light_cli_option *option[LIGHT_CLI_MAX_OPTIONS];
-        struct light_command *child[LIGHT_CLI_MAX_SUBCOMMANDS];
-};
-struct light_cli_option_value {
-        const struct light_cli_option *option;
-        const uint8_t *value;
-};
-struct light_cli_invocation {
-        struct light_command *target;
-        uint8_t option_count;
-        struct light_cli_option_value option[LIGHT_CLI_MAX_OPTIONS];
-        uint8_t args_bound;
-        const uint8_t *arg[LIGHT_CLI_MAX_ARGS];
-};
-#define LIGHT_CLI_RESULT_SUCCESS        0
-#define LIGHT_CLI_RESULT_ALIAS          1
-#define LIGHT_CLI_RESULT_ERROR          2
-struct light_cli_invocation_result {
-        uint8_t code;
-        union value {
-                struct light_command *command;
-        } value;
-};
-#define Result_Success (struct light_cli_invocation_result) {.code = LIGHT_CLI_RESULT_SUCCESS}
-#define Result_Error (struct light_cli_invocation_result) {.code = LIGHT_CLI_RESULT_ERROR}
-#define Result_Alias(target) \
-        (struct light_cli_invocation_result) { \
-                .code = LIGHT_CLI_RESULT_ALIAS, \
-                .value.command = target \
-        }
-
-extern struct lobj_type ltype_cli_command;
-// static command max-args value is determined at load time by the size of .arg_name
-#define Light_Command_Static(_name, _parent, _desc, _handler, _arg_min, _arg_max, ...) \
-        { \
-                /*   Static_RO, not plain RO: these live in file-scope storage the program did
-                 * not allocate, and ltype_cli_command carries a release hook that calls
-                 * light_free(). Without the static flag, a put() reaching zero would hand that
-                 * storage to free() -- see light_object_put_reg() */ \
-                .header = Light_Object_Static_RO("light_cmd:"_name, NULL, &ltype_cli_command), \
-                .short_name = _name, \
-                .parent = _parent, \
-                .description = _desc, \
-                .handler = _handler, \
-                .arg_min = _arg_min, \
-                .arg_max = _arg_max, \
-                .option = { __VA_ARGS__ } \
-        }
-
-// FIXME the arg ordering on these macros is fucking wack
-#define Light_Command_Option_Type(name, command, type, code, description) \
-        { command, type, code, name, description }
-
-#define Light_Command_Switch(command, code, name, description) \
-        Light_Command_Option_Type(name, command, LIGHT_CLI_SWITCH, code, description)
-
-#define Light_Command_Option(command, code, name, description) \
-        Light_Command_Option_Type(name, command, LIGHT_CLI_OPTION, code, description)
-
-#define Light_Command_Declare(sym_name, parent) \
-        extern struct light_command sym_name
-
-extern void light_cli__autoload_command(void *object);
-extern void light_cli__autoload_option(void *object);
-
-//   NO __static_descriptor on the command itself. On RP2040/RP2350 that attribute expands to
-// __in_flash(".descriptors"), and light_cli_register_command() MUTATES the command at load
-// time -- it writes parent, full_name, parent->child[] and parent->child_count. Those stores
-// cannot land in read-only XIP flash, so the command has to sit in RAM. Every other port
-// defines __static_descriptor as nothing, so this only ever mattered on RP2.
-//
-//   the autoload record below keeps __static_object: that one really is const, and belongs in
-// the .light.static section the framework walks at init
-#define Light_Command_Define(sym_name, parent, name, description, handler, _arg_min, _arg_max, ...) \
-        struct light_command sym_name = \
-                Light_Command_Static(name, parent, description, handler, _arg_min, _arg_max, __VA_ARGS__); \
-        static const __static_object struct light_static_object autoload_## sym_name = \
-                Light_Static_Object(&sym_name, light_cli__autoload_command);
-
-#define Light_Command_Option_Declare(sym_name, command) \
-        extern struct light_cli_option sym_name
-
-// no __static_descriptor here either, and for the same reason as Light_Command_Define above:
-// light_cli_register_option_ctx() writes into the option's owning command, and an option in
-// flash on RP2 could not participate
-#define Light_Command_Option_Type_Define(sym_name, command, type, name, code, description) \
-        struct light_cli_option sym_name = \
-                        Light_Command_Option_Type(name, command, type, code, description); \
-        const struct light_static_object __static_object autoload_## sym_name = \
-                Light_Static_Object(&sym_name, light_cli__autoload_option)
-#define Light_Command_Option_Define(sym_name, command, name, code, description) \
-                Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_OPTION, name, code, description)
-#define Light_Command_Switch_Define(sym_name, command, name, code, description) \
-                Light_Command_Option_Type_Define(sym_name, command, LIGHT_CLI_SWITCH, name, code, description)
-
-extern struct light_command root_command;
 
 // called at module load-time by framework
 extern void light_cli_init();
 
-static inline const uint8_t *light_cli_command_get_full_name(struct light_command *command)
-{
-        return command->full_name;
-}
-static inline const struct light_command *light_cli_command_get_parent(struct light_command *command)
-{
-        return command->parent;
-}
-static inline const uint8_t *light_cli_get_object_id(struct light_command *command)
-{
-        return light_object_get_name(&command->header);
-}
-static inline const uint8_t *light_cli_command_get_short_name(struct light_command *command)
-{
-        return command->short_name;
-}
-static inline const uint8_t *light_cli_command_get_description(struct light_command *command)
-{
-        return command->description;
-}
-
-static inline const char light_cli_option_get_code(struct light_cli_option *option)
-{
-        return option->code;
-}
-static inline const uint8_t *light_cli_option_get_name(struct light_cli_option *option)
-{
-        return option->name;
-}
-static inline uint8_t light_cli_option_get_type(struct light_cli_option *option)
-{
-        return option->type;
-}
-static inline const uint8_t *light_cli_option_get_description(struct light_cli_option *option)
-{
-        return option->description;
-}
-
-extern struct light_cli_option *light_cli_find_command_option(
-                                struct light_command *command, const uint8_t *name);
-static inline struct light_cli_option *light_cli_find_option(const uint8_t *name)
-{
-        return light_cli_find_command_option(NULL, name);
-}
 
 extern const uint8_t *light_cli_invocation_get_arg_value(struct light_cli_invocation *invoke, uint8_t index);
 extern const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name);
@@ -203,57 +43,6 @@ static inline bool light_cli_invocation_get_switch_value(struct light_cli_invoca
 extern uint8_t light_cli_process_command_line(struct light_command *root, struct light_cli_invocation *invoke, int argc, char *argv[]);
 extern uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke);
 
-// command and option API
-extern struct light_command *light_cli_create_command(
-                                struct light_command *parent,
-                                const uint8_t *name,
-                                const uint8_t *description,
-                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *));
-extern void light_cli_register_command(
-                                struct light_command *parent,
-                                struct light_command *command);
-
-extern struct light_cli_option *light_cli_create_option_ctx(
-                                struct light_command *parent,
-                                const uint8_t code,
-                                const uint8_t *name,
-                                bool arg,
-                                const uint8_t *description);
-
-static inline struct light_cli_option *light_cli_create_option(
-                                const uint8_t code,
-                                const uint8_t *name,
-                                bool arg,
-                                const uint8_t *description)
-{
-        return light_cli_create_option_ctx(NULL, code, name, arg, description);
-}
-extern void light_cli_register_option_ctx(
-                                struct light_command *parent,
-                                struct light_cli_option *option);
-
-static inline void light_cli_register_option(
-                                struct light_cli_option *option)
-{
-        return light_cli_register_option_ctx(NULL, option);
-};
-static inline struct light_cli_option *light_cli_create_switch_ctx(
-                                struct light_command *parent,
-                                const uint8_t code,
-                                const uint8_t *name,
-                                const uint8_t *description)
-{
-        return light_cli_create_option_ctx(parent, code, name, false, description);
-}
-static inline struct light_cli_option *light_cli_create_switch(
-                                const uint8_t code,
-                                const uint8_t *name,
-                                const uint8_t *description)
-{
-        return light_cli_create_switch_ctx(NULL, code, name, description);
-}
-extern struct light_command *light_cli_find_command(
-                                struct light_command *parent, const uint8_t *name);
 
 /*   RUNNING A COMMAND LINE THAT ARRIVES AS A STRING, rather than as an argv at process launch.
  * A REPL prompt, a batch script and a command typed at a serial console are all the same
@@ -312,11 +101,5 @@ extern uint8_t light_cli_run_line(struct light_command *root, uint8_t *line);
 // this type. So a true return means the line was accepted, not that all of it was: a caller
 // whose lines can be that long has to check the length itself.
 extern bool light_cli_queue_line(struct light_command *root, const uint8_t *line);
-
-//   writes a usage summary for `command` -- its own usage line and description, then its
-// subcommands and its options -- to light_stream_stdout. Through the stream layer rather than
-// printf so it stays ordered with everything else the command tree logs, and so it works on a
-// target whose console is not stdio at all
-extern void light_cli_print_command_help(struct light_command *command);
 
 #endif

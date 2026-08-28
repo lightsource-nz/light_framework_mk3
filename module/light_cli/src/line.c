@@ -23,12 +23,8 @@
 
 #define QUOTE_NONE                      0
 
-// how many argument placeholders a usage line shows before giving up and printing an ellipsis.
-// arg_max is 16 for a command that wants everything, and a usage line listing sixteen <arg>
-// placeholders describes nothing
-#define HELP_ARGS_SHOWN                 4
-// column the option descriptions are padded out to, so a list of them reads as a table
-#define HELP_OPTION_NAME_WIDTH          14
+// the help-formatting constants moved to light_core/src/command.c with
+// light_command_print_help(), which was their only user
 
 uint8_t light_cli_tokenize_line(uint8_t *line, char *argv[], uint8_t argv_max, uint8_t *argc_out)
 {
@@ -103,7 +99,7 @@ uint8_t light_cli_run_line(struct light_command *root, uint8_t *line)
 
         if(!line)
                 return LIGHT_INVALID;
-        const uint8_t *root_name = root ? light_cli_command_get_short_name(root) : NULL;
+        const uint8_t *root_name = root ? light_command_get_short_name(root) : NULL;
         if(!root_name) {
                 //   root_command itself is anonymous: it is a placeholder that owns the real
                 // root commands and has no name to synthesise an argv[0] from. An application
@@ -149,71 +145,4 @@ uint8_t light_cli_run_line(struct light_command *root, uint8_t *line)
         if(light_cli_dispatch_command_line(&invoke) == LF_STATUS_ERROR)
                 return LIGHT_INVALID;
         return LIGHT_OK;
-}
-void light_cli_print_command_help(struct light_command *command)
-{
-        if(!command)
-                command = &root_command;
-        struct light_stream *out = light_stream_stdout;
-        //   full_name is built at registration and is NULL for root_command, which is never
-        // registered; short_name is NULL for it too. A tree walked from an application's own
-        // root never lands here, but a caller handed the placeholder deserves a line rather
-        // than a fault
-        const uint8_t *name = light_cli_command_get_full_name(command);
-        if(!name)
-                name = light_cli_command_get_short_name(command);
-
-        //   the argument placeholders: required ones in angle brackets, optional ones also in
-        // square brackets. There are no argument NAMES to print -- a command declares only how
-        // many it takes -- so this says how many and which are optional, and the description
-        // below is where a command explains what they are
-        char args[64] = "";
-        size_t used = 0;
-        for(uint8_t i = 0; i < command->arg_max && i < HELP_ARGS_SHOWN; i++) {
-                int written = snprintf(args + used, sizeof(args) - used, "%s",
-                                (i < command->arg_min) ? " <arg>" : " [<arg>]");
-                if(written < 0 || (size_t)written >= sizeof(args) - used)
-                        break;
-                used += (size_t)written;
-        }
-        if(command->arg_max > HELP_ARGS_SHOWN)
-                snprintf(args + used, sizeof(args) - used, " ...");
-
-        light_stream_message_f_faster(out, "usage: %s%s%s%s\n",
-                        name ? name : (const uint8_t *)"(root)",
-                        command->child_count ? " <subcommand>" : "",
-                        command->option_count ? " [options]" : "",
-                        args);
-        if(command->description)
-                light_stream_message_f_faster(out, "  %s\n", command->description);
-
-        if(command->child_count) {
-                light_stream_message_f_faster(out, "\nsubcommands:\n");
-                for(uint8_t i = 0; i < command->child_count && i < LIGHT_CLI_MAX_SUBCOMMANDS; i++) {
-                        struct light_command *child = command->child[i];
-                        light_stream_message_f_faster(out, "  %-*s  %s\n",
-                                        HELP_OPTION_NAME_WIDTH,
-                                        light_cli_command_get_short_name(child),
-                                        light_cli_command_get_description(child) ?
-                                                light_cli_command_get_description(child) :
-                                                (const uint8_t *)"");
-                }
-        }
-        if(command->option_count) {
-                light_stream_message_f_faster(out, "\noptions:\n");
-                for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
-                        struct light_cli_option *option = command->option[i];
-                        //   an OPTION takes a value and a SWITCH does not, and that difference
-                        // is the one thing a reader cannot guess from the name
-                        light_stream_message_f_faster(out, "  -%c, --%-*s%s  %s\n",
-                                        light_cli_option_get_code(option),
-                                        HELP_OPTION_NAME_WIDTH,
-                                        light_cli_option_get_name(option),
-                                        light_cli_option_get_type(option) == LIGHT_CLI_OPTION ?
-                                                "<value>" : "       ",
-                                        light_cli_option_get_description(option) ?
-                                                light_cli_option_get_description(option) :
-                                                (const uint8_t *)"");
-                }
-        }
 }

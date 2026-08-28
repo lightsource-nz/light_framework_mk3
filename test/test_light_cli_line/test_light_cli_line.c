@@ -21,7 +21,7 @@
  *      command at a prompt ("font" with no subcommand) reaches that path immediately, where a
  *      shell invocation practically never did.
  *
- *  WHAT IS DELIBERATELY NOT ASSERTED. light_cli_print_command_help() writes through the stream
+ *  WHAT IS DELIBERATELY NOT ASSERTED. light_command_print_help() writes through the stream
  *  layer, so checking its text would mean capturing stdout out from under a background worker
  *  thread. The case here calls it across the shapes that differ structurally -- a node with
  *  children, a leaf with options, and the anonymous root_command whose name is NULL -- and
@@ -40,7 +40,7 @@ static void _test_app_event(const struct light_module *module, uint8_t event, vo
 static uint8_t _test_app_main(struct light_application *app) { return LF_STATUS_RUN; }
 //   light_cli is a dependency so its MODULE_LOAD runs and the command tree below is registered
 // by the framework's own static-object walk, rather than by this file reaching for
-// light_cli_register_command() and testing a registration path no application uses
+// light_command_register() and testing a registration path no application uses
 Light_Application_Define(test_light_cli_line, _test_app_event, _test_app_main,
                                                                 &light_cli,
                                                                 &light_core);
@@ -86,7 +86,7 @@ static void record_reset(void)
 static struct light_cli_invocation_result record(struct light_cli_invocation *invoke)
 {
         handler_calls++;
-        seen_command = light_cli_command_get_short_name(invoke->target);
+        seen_command = light_command_get_short_name(invoke->target);
         seen_argc = invoke->args_bound;
         for(uint8_t i = 0; i < invoke->args_bound && i < LIGHT_CLI_MAX_ARGS; i++)
                 seen_arg[i] = light_cli_invocation_get_arg_value(invoke, i);
@@ -294,7 +294,7 @@ static void test_run_line_binds_arguments_and_options(void)
 static void test_run_line_binds_options_by_short_code(void)
 {
         //   '-o' is '--opt' and '-s' is '--sw'. Every option in every one of these projects
-        // declares a single-letter code, and until light_cli_find_command_option() grew a second
+        // declares a single-letter code, and until light_command_find_option() grew a second
         // pass NOTHING compared against it -- the short form of every option reported "no option
         // named 'o'" and failed the parse. A help listing that prints "-o, --opt" has to be true
         CHECK(run("echo -o value -s") == LIGHT_OK, "should run");
@@ -385,11 +385,11 @@ static void test_help_prints_every_command_shape(void)
         //   no assertion on the text -- see the header. This covers the pointer handling across
         // the shapes that differ: children with descriptions, both kinds of option, a leaf with
         // neither, and the anonymous root whose name and description are NULL
-        light_cli_print_command_help(&cmd_test);
-        light_cli_print_command_help(&cmd_test_echo);
-        light_cli_print_command_help(&cmd_test_leaf);
-        light_cli_print_command_help(&root_command);
-        light_cli_print_command_help(NULL);
+        light_command_print_help(&cmd_test);
+        light_command_print_help(&cmd_test_echo);
+        light_command_print_help(&cmd_test_leaf);
+        light_command_print_help(&root_command);
+        light_command_print_help(NULL);
         CHECK(true, "reached the end without faulting");
 }
 

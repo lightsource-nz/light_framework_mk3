@@ -13,17 +13,6 @@
 
 #include "cli_private.h"
 
-#define TYPE_NAME_COMMAND               "light_cli:command"
-
-static void command_release(struct light_object *cmd);
-struct lobj_type ltype_cli_command = {
-        .id = TYPE_NAME_COMMAND,
-        .release = command_release
-};
-
-//   we use this structure as a placeholder to store actual root-level commands,
-// but it has no name and cannot be invoked
-struct light_command root_command;
 struct light_cli_invocation static_invoke;
 
 //   light_cli_queue_line()'s backing store -- see that function and cli_task() for the full
@@ -37,10 +26,7 @@ static struct light_stream_mqueue queue;
 // running in this process -- see light_cli_queue_line()'s header comment
 static struct light_command *queue_root;
 
-static void command_release(struct light_object *cmd)
-{
-        light_free(to_command(cmd));
-}
+
 void light_cli_init()
 {
         light_mutex_init(&queue_lock);
@@ -78,56 +64,6 @@ bool light_cli_queue_line(struct light_command *root, const uint8_t *line)
         light_mutex_do_unlock(&queue_lock);
         return true;
 }
-#define LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE      128
-static const uint8_t *cli_command_get_full_name(struct light_command *command)
-{
-        static uint8_t buffer[LIGHT_CLI_COMMAND_NAME_BUFFER_SIZE];
-        struct light_command *stack[LIGHT_CLI_MAX_COMMAND_DEPTH];
-        uint8_t depth = 0;
-
-        //   walk up to the root recording the path, BOUNDED by the size of stack[]. The loop
-        // had no such bound, so a tree deeper than LIGHT_CLI_MAX_COMMAND_DEPTH wrote past the
-        // end of it -- and the depth is whatever the application's command hierarchy happens
-        // to be, not something this file controls
-        for(struct light_command *next = command;
-                        next && next != &root_command && depth < LIGHT_CLI_MAX_COMMAND_DEPTH;
-                        next = next->parent) {
-                stack[depth++] = next;
-        }
-
-        //   then back down again, joining with spaces, every append bounded by the space
-        // actually REMAINING.
-        //
-        //   this used to call strncat() with `end - cursor` as its bound. strncat's third
-        // argument is how many characters it may add ON TOP of what the destination already
-        // holds, and it writes a terminator after those -- so the bound has to be the space
-        // left, less one. `cursor` was never advanced, so `end - cursor` was the whole buffer
-        // size on every call, and a long enough command path ran off the end of it. That is
-        // what -Wstringop-overflow was pointing at
-        size_t used = 0;
-        buffer[0] = '\0';
-        for(uint8_t i = depth; i > 0; i--) {
-                const uint8_t *part = light_cli_command_get_short_name(stack[i - 1]);
-                size_t len = strlen((const char *) part);
-                size_t sep = (i > 1) ? 1 : 0;
-
-                // +1 for the terminator, which is never part of the space a bound may use
-                if(used + len + sep + 1 > sizeof(buffer)) {
-                        light_warn("command name for '%s' truncated at %u characters",
-                                        light_cli_command_get_short_name(command), (unsigned) used);
-                        break;
-                }
-                memcpy(buffer + used, part, len);
-                used += len;
-                if(sep)
-                        buffer[used++] = ' ';
-                buffer[used] = '\0';
-        }
-
-        uint8_t *out = light_alloc(used + 1);
-        memcpy(out, buffer, used + 1);
-        return out;
-}
 // minimal portable replacement for POSIX basename() (<libgen.h> isn't available on bare-metal
 // ARM newlib): returns a pointer to the last path component, or the whole string if it
 // contains no separator. unlike POSIX basename(), never modifies or reallocates 'path'
@@ -140,16 +76,6 @@ static uint8_t *_cli_basename(uint8_t *path)
                         out = p + 1;
         }
         return out;
-}
-void light_cli__autoload_command(void *object)
-{
-        struct light_command *command = (struct light_command *)object;
-        light_cli_register_command(command->parent, command);
-}
-void light_cli__autoload_option(void *object)
-{
-        struct light_cli_option *option = (struct light_cli_option *)object;
-        light_cli_register_option_ctx(option->command, option);
 }
 //   the internal command-line parser's input limit. Spelled as the public constant because
 // light_cli_tokenize_line() sizes a caller's argv by it, and the two must agree: an argv longer
@@ -233,7 +159,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
         // remaining arguments which the matched command may bind. this counter is
         // decremented every time an argument is bound (to the command, not an option).
         struct light_command *context = root;
-        struct light_cli_option_value *context_opt = NULL;
+        struct light_command_option_value *context_opt = NULL;
         uint8_t to_bind;
         uint8_t state = STATE_MATCH;
         for(uint8_t i = 0; i < argc; i++) {
@@ -244,7 +170,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                         if(state == STATE_MATCH) {
                                 struct light_command *next;
                                 // determine if this string matches a subcommand...
-                                if(next = light_cli_find_command(context, token[i].value)) {
+                                if(next = light_command_find(context, token[i].value)) {
                                         context = next;
                                         invoke->target = context;
                                 } else { // ...or if it's time to start binding arguments
@@ -259,11 +185,11 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                         context_opt = NULL;
                                 } else {
                                         if(invoke->args_bound >= LIGHT_CLI_MAX_ARGS) {
-                                                light_error("too many arguments to command '%s' (max: %d)", light_cli_command_get_full_name(invoke->target), invoke->target->arg_max);
+                                                light_error("too many arguments to command '%s' (max: %d)", light_command_get_full_name(invoke->target), invoke->target->arg_max);
                                                 return LIGHT_INVALID;
                                         }
                                         if(to_bind <= 0)
-                                                light_warn("excess arguments supplied to command '%s'", light_cli_command_get_full_name(invoke->target));
+                                                light_warn("excess arguments supplied to command '%s'", light_command_get_full_name(invoke->target));
                                         invoke->arg[invoke->args_bound++] = token[i].value;
                                         to_bind--;
                                 }
@@ -284,36 +210,36 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                                 to_bind = context->arg_max;
                                 state = STATE_BIND;
                         }
-                        struct light_cli_option_value *optval = &invoke->option[invoke->option_count++];
+                        struct light_command_option_value *optval = &invoke->option[invoke->option_count++];
                         uint8_t *eq_idx = strchr(token[i].value, '=');
                         // option strings containing a '=' character have a value embedded
                         if(eq_idx) {
                                 char optname[LIGHT_CLI_OPTION_VALUE_MAX];
                                 strncpy(optname, token[i].value, (eq_idx - token[i].value));
-                                struct light_cli_option *option = light_cli_find_command_option(context, optname);
+                                struct light_command_option *option = light_command_find_option(context, optname);
 
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
-                                                        optname, light_cli_command_get_short_name(context));
+                                                        optname, light_command_get_short_name(context));
                                         return LIGHT_INVALID;
                                 }
                                 optval->option = option;
                                 optval->value = ++eq_idx;
                         } else {
-                                struct light_cli_option *option = light_cli_find_command_option(context, token[i].value);
+                                struct light_command_option *option = light_command_find_option(context, token[i].value);
 
                                 if(!option) {
                                         light_error("no option named '%s' exists for command '%s'",
-                                                token[i].value, light_cli_command_get_short_name(context));
+                                                token[i].value, light_command_get_short_name(context));
                                         return LIGHT_INVALID;
                                 }
                                 switch(option->type) {
-                                case LIGHT_CLI_OPTION:
+                                case LIGHT_COMMAND_OPTION:
                                         // set this option as the bind context, so its argument is bound
                                         context_opt = optval;
                                         optval->value = token[i].value;
                                         break;
-                                case LIGHT_CLI_SWITCH:
+                                case LIGHT_COMMAND_SWITCH:
                                         optval->value = "1";
                                 }
                                 optval->option = option;
@@ -322,7 +248,7 @@ uint8_t light_cli_process_command_line(struct light_command *root, struct light_
                 }
         }
         uint8_t ref_depth = 0;
-        const uint8_t *full_name = light_cli_command_get_full_name(invoke->target);
+        const uint8_t *full_name = light_command_get_full_name(invoke->target);
         light_debug("finished parsing command line, target command: '%s'", full_name);
         return LIGHT_OK;
 }
@@ -390,10 +316,10 @@ uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke)
         // `crush font add` does. Calling through the null pointer is what used to happen
         if(!invoke->target->handler) {
                 light_error("command '%s' has no handler; it takes a subcommand",
-                                light_cli_command_get_short_name(invoke->target));
+                                light_command_get_short_name(invoke->target));
                 return LF_STATUS_ERROR;
         }
-        const uint8_t *full_name = light_cli_command_get_full_name(invoke->target);
+        const uint8_t *full_name = light_command_get_full_name(invoke->target);
         light_debug("calling command handler for for command '%s'", full_name);
         struct light_command *last_command = invoke->target;
         struct light_cli_invocation_result result = invoke->target->handler(invoke);
@@ -406,8 +332,8 @@ uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke)
                                 light_error("command invocation exceeded maximum alias depth of %d", LIGHT_CLI_MAX_REF_DEPTH);
                                 return LF_STATUS_ERROR;
                         }
-                        const uint8_t *source = light_cli_command_get_full_name(last_command);
-                        const uint8_t *target = light_cli_command_get_full_name(result.value.command);
+                        const uint8_t *source = light_command_get_full_name(last_command);
+                        const uint8_t *target = light_command_get_full_name(result.value.command);
                         light_debug("command '%s' aliased to target command '%s'", source, target);
                         last_command = result.value.command;
                         reference_depth++;
@@ -415,7 +341,7 @@ uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke)
                         // check above catches, reached the long way round
                         if(!last_command->handler) {
                                 light_error("alias target '%s' has no handler",
-                                                light_cli_command_get_short_name(last_command));
+                                                light_command_get_short_name(last_command));
                                 return LF_STATUS_ERROR;
                         }
                         result = last_command->handler(invoke);
@@ -423,108 +349,14 @@ uint8_t light_cli_dispatch_command_line(struct light_cli_invocation *invoke)
                 
                 case LIGHT_CLI_RESULT_ERROR:
                         light_error("handler for command '%s' returned ERROR status",
-                                light_cli_command_get_short_name(last_command));
+                                light_command_get_short_name(last_command));
                         return LF_STATUS_ERROR;
                 }
         }
         light_debug("command handler for '%s' completed successfully",
-                light_cli_command_get_short_name(last_command));
+                light_command_get_short_name(last_command));
         return LF_STATUS_RUN;
 }
-struct light_command *light_cli_create_command(
-                                struct light_command *parent,
-                                const uint8_t *name,
-                                const uint8_t *description,
-                                struct light_cli_invocation_result (*handler)(struct light_cli_invocation *))
-{
-        if(!parent)
-                return light_cli_create_command(&root_command, name, description, handler);
-        struct light_command *command;
-        if(!(command = light_alloc(sizeof(struct light_command)))) {
-                light_warn("could not create new command '%s', failed to allocate memory", name);
-                return NULL;
-        }
-
-        command->short_name = name;
-        command->description = description;
-        command->handler = handler;
-        light_cli_register_command(parent, command);
-        return command;
-}
-void light_cli_register_command(
-                                struct light_command *parent,
-                                struct light_command *command)
-{        
-        if(!parent)
-                return light_cli_register_command(&root_command, command);
-        if(parent->child_count >= LIGHT_CLI_MAX_SUBCOMMANDS) {
-                light_warn("failed to register command '%s', parent command exceeded maximum subcommand count", command->short_name);
-                return;
-        }
-        command->parent = parent;
-        parent->child[parent->child_count++] = command;
-        // the "full name" string is heap allocated separately to the command object
-        command->full_name = cli_command_get_full_name(command);
-        light_trace("added subcommand '%s' to command '%s'", command->short_name, parent->short_name);
-}
-void light_cli_register_option_ctx(
-                                struct light_command *command,
-                                struct light_cli_option *option)
-{
-        if(!command)
-                return light_cli_register_option_ctx(&root_command, option);
-        if(command->option_count >= LIGHT_CLI_MAX_OPTIONS) {
-                light_warn("could not add option '%s' to command '%s': max options reached", light_cli_option_get_name(option), light_cli_command_get_short_name(command));
-                return;
-        }
-        command->option[command->option_count++] = option;
-        light_trace("added option '%s' to command '%s'", light_cli_option_get_name(option), light_cli_command_get_short_name(command));
-}
-
-struct light_command *light_cli_find_command(
-                                struct light_command *parent, const uint8_t *name)
-{
-        if(!parent) {
-                return light_cli_find_command(&root_command, name);
-        }
-        for(uint8_t i = 0; i < parent->child_count && i < LIGHT_CLI_MAX_SUBCOMMANDS; i++) {
-                if(strcmp(light_cli_command_get_short_name(parent->child[i]), name) == 0) {
-                        return parent->child[i];
-                }
-        }
-        return NULL;
-}
-
-struct light_cli_option *light_cli_find_command_option(
-                                struct light_command *command, const uint8_t *name)
-{
-        if(!command) {
-                return light_cli_find_command_option(&root_command, name);
-        }
-        for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
-                if(!strncmp(light_cli_option_get_name(command->option[i]), name, LIGHT_OBJ_NAME_LENGTH)) {
-                        return command->option[i];
-                }
-        }
-        //   THEN BY SINGLE-LETTER CODE, in a second pass. Every option carries a `code` and
-        // every application supplies one, but nothing ever compared against it -- lookup was by
-        // name only, so '-t' for '--font' silently reported "no option named 't'" and the short
-        // form of every option in every one of these projects did not work.
-        //
-        //   a SECOND pass rather than a second test inside the loop above, so that an option
-        // whose name really is one character always beats an earlier option that happens to
-        // carry that letter as its code. Names are what the user wrote out in full; a code is
-        // an abbreviation, and an abbreviation should never shadow the full spelling
-        if(name[0] && !name[1]) {
-                for(uint8_t i = 0; i < command->option_count && i < LIGHT_CLI_MAX_OPTIONS; i++) {
-                        if(light_cli_option_get_code(command->option[i]) == (const char)name[0]) {
-                                return command->option[i];
-                        }
-                }
-        }
-        return NULL;
-}
-
 const uint8_t *light_cli_invocation_get_arg_value(struct light_cli_invocation *invoke, const uint8_t index)
 {
         if(index >= invoke->args_bound) return NULL;
@@ -532,7 +364,7 @@ const uint8_t *light_cli_invocation_get_arg_value(struct light_cli_invocation *i
 }
 const uint8_t *light_cli_invocation_get_option_value(struct light_cli_invocation *invoke, const uint8_t *option_name)
 {
-        struct light_cli_option *option = light_cli_find_command_option(invoke->target, option_name);
+        struct light_command_option *option = light_command_find_option(invoke->target, option_name);
         if(!option) return NULL;
         for(uint8_t i = 0; i < invoke->option_count; i++) {
                 if(invoke->option[i].option == option) {
