@@ -16,7 +16,7 @@
 # completion and exits 0, or nonzero when a command fails.
 #
 # USAGE:  light-debug.ps1 [-Target <name>] [-Preset <name>] [-ServerOnly] [-Attach] [-NoBuild]
-#                         [-Ex <cmd>[,<cmd>...]] [-Batch]
+#                         [-Ex <cmd>[,<cmd>...]] [-Batch] [-ProbeRs]
 #
 #   -Ex appends gdb commands after the standard ones, in order. COMMA-SEPARATED for more than
 # one: it is a PowerShell array parameter, so `-Ex 'a' -Ex 'b'` is an error rather than two
@@ -29,6 +29,16 @@
 #     light-debug.ps1 -Batch                              # load the image over SWD and stop
 #     light-debug.ps1 -Batch -Ex 'monitor reset run'      # load it and leave the board running
 #     light-debug.ps1 -Ex 'break main'                    # interactive, stopped at main
+#
+#   -ProbeRs is the fast flash-and-run path: probe-rs downloads the image and resets the board,
+# no OpenOCD, no gdb, always batch. It needs `Chip` in the preset's Debug entry (probe-rs's own
+# chip name: RP235x, RP235x_riscv, RP2040, STM32H743VI, ...), and it sidesteps two OpenOCD
+# behaviours this layer otherwise has to manage by hand on the RP2350 -- the flash-probe ROM
+# stub run over a halted core, and SIO spinlock 31 left held by the debugger's own reads. The
+# gdb path stays for interactive work and for `monitor` commands; this one is for "get the new
+# image running":
+#
+#     light-debug.ps1 -ProbeRs                            # flash, reset, running -- done
 param(
         [string]$Target,
         [string]$Preset,
@@ -37,6 +47,7 @@ param(
         [switch]$NoBuild,
         [string[]]$Ex,
         [switch]$Batch,
+        [switch]$ProbeRs,
         [string]$ProjectRoot
 )
 
@@ -75,6 +86,34 @@ $elf = @("module/$Target/$Target.elf", "module/$Target/$Target",
         Select-Object -First 1
 if (-not $elf) {
         throw "no executable found for '$Target' in '$tree' (looked for $Target.elf and $Target) -- has it been built?"
+}
+
+#   the probe-rs path: download, reset, done. Deliberately not a server and not a debugger --
+# probe-rs's gdb server exists, but the OpenOCD path below already owns interactive debugging,
+# and two half-configured ways to do one thing is how launch.json got into the state that made
+# this script necessary
+if ($ProbeRs) {
+        if ($ServerOnly -or $Attach -or $Ex) {
+                throw "-ProbeRs flashes and resets, nothing else; -ServerOnly, -Attach and -Ex belong to the gdb path (drop -ProbeRs to use them)"
+        }
+        if (-not $debug.Chip) {
+                throw "no Chip for preset '$Preset' in scripts/project.config.ps1 -- the probe-rs path needs the chip's probe-rs name (RP235x, RP2040, STM32H743VI, ...) beside the Debug entry's Config"
+        }
+        $exeSuffix = Get-LightExeSuffix
+        #   the official installer and `cargo install` both land in ~/.cargo/bin, which
+        # light-env.ps1 does not put on PATH for the C projects -- so it is searched first
+        $probeRsTool = Find-LightTool -Name "probe-rs$exeSuffix" -Candidates @(
+                (Join-Path $HOME ".cargo/bin/probe-rs$exeSuffix")
+        )
+        if (-not $probeRsTool) { throw "no probe-rs found: install it (probe.rs/docs/getting-started/installation) or put it on PATH" }
+        Write-Host "probe-rs: $probeRsTool"
+        Write-Host "chip:     $($debug.Chip)"
+        Write-Host "elf:      $elf"
+        & $probeRsTool download --chip $debug.Chip $elf
+        if ($LASTEXITCODE -ne 0) { throw "probe-rs download failed with code $LASTEXITCODE" }
+        & $probeRsTool reset --chip $debug.Chip
+        if ($LASTEXITCODE -ne 0) { throw "probe-rs reset failed with code $LASTEXITCODE" }
+        return
 }
 
 $ocdConfig = Join-Path $config.Root $debug.Config
