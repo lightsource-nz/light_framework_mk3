@@ -109,7 +109,12 @@ if ($ProbeRs) {
         Write-Host "probe-rs: $probeRsTool"
         Write-Host "chip:     $($debug.Chip)"
         Write-Host "elf:      $elf"
-        & $probeRsTool download --chip $debug.Chip $elf
+        #   --verify ALWAYS, because a silent misprogram is real: on an RP2040 (w25q16jv) the
+        # plain download reported success, `probe-rs verify` then said the flash did not match,
+        # and the core sat in the bootrom with nothing to boot. With --verify the same download
+        # programs correctly and a failure would be an error instead of a mystery. Costs a
+        # couple of seconds of readback
+        & $probeRsTool download --chip $debug.Chip --verify $elf
         if ($LASTEXITCODE -ne 0) { throw "probe-rs download failed with code $LASTEXITCODE" }
         & $probeRsTool reset --chip $debug.Chip
         if ($LASTEXITCODE -ne 0) { throw "probe-rs reset failed with code $LASTEXITCODE" }
